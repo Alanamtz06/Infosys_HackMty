@@ -23,3 +23,10 @@ backend/cache/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Claude Code skills (instalados via `npx skills`): los symlinks usan rutas
+# absolutas de esta maquina, no son portables. skills-lock.json SI se versiona
+# para que cada quien pueda correr `npx skills@latest experimental_install`.
+.agents/
+.claude/skills/
+.claude/scheduled_tasks.lock

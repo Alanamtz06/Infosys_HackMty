@@ -9,6 +9,9 @@ app = FastAPI(title="Delivery Sim ZMM")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.frontend_origin],
+    # Vite cambia de puerto (5173, 5174, ...) si el default esta ocupado;
+    # se permite cualquier puerto de localhost para no romper CORS en dev.
+    allow_origin_regex=r"http://localhost:\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )
