@@ -24,9 +24,11 @@ from app.config import settings
 from app.db.connection import get_session
 from app.db.models import Order as OrderModel
 from app.db.models import SimulationRun, TripRecord
+from app.decision import batching, policy
 from app.decision.scoring import OrderEvaluation, VehicleType
 from app.engine.graph_loader import apply_traffic, load_graph
 from app.engine.pois import load_restaurants
+from app.engine.routing import clear_road_closure, simulate_random_closure
 from app.engine.traffic_rules import GOD_MODE_PRESETS
 from app.engine.virtual_clock import VirtualClock
 from app.schemas.simulation import (
@@ -49,6 +51,12 @@ DEFAULT_START_HOUR = 8.0
 MAX_PENDING_ORDERS = 5
 MAX_EVENTS = 200
 
+# El God Mode "salida_trabajo" (hora pico de la tarde) es, ademas de trafico
+# pesado, el momento que usamos para la demo de "cierre de calle a mitad de
+# turno" que pide el reto: no hay boton nuevo en la UI para esto (no se toco
+# el frontend), se aprovecha el preset que ya existe.
+ROAD_CLOSURE_PRESET = "salida_trabajo"
+
 
 @dataclass
 class PendingOrder:
@@ -70,6 +78,8 @@ class SimulationSession:
     finished: bool = False
     pending_orders: dict[str, PendingOrder] = field(default_factory=dict)
     events: list[dict] = field(default_factory=list)
+    orders_accepted: int = 0  # para decision.policy: ritmo de aceptacion vs. tiempo transcurrido
+    active_closure: dict | None = None  # {"u", "v", "street_name"} del cierre de calle vigente, si hay uno
 
 
 # TODO: mover a Redis si esto llega a correr con mas de un worker de uvicorn
@@ -138,10 +148,55 @@ def _tick(session: SimulationSession, db: Session) -> None:
         f"${order['fare']:.2f} MXN, estimated Score ${evaluation.score:.2f}",
     )
 
+    _log_batching_insight(session)
 
-def _to_pending_out(order_id: str, pending: PendingOrder) -> PendingOrderOut:
+
+def _log_batching_insight(session: SimulationSession) -> None:
+    """Con 2+ ordenes pendientes, corre VRPTW (app.decision.batching) sobre
+    todas juntas y, si conviene, lo anuncia en el log — informativo nada
+    mas: el frontend no tiene una accion de "aceptar batch", cada orden se
+    sigue decidiendo una por una en PendingOrdersPanel.
+    """
+    if len(session.pending_orders) < 2:
+        return
+
+    start_point = session.delivery_agent.position or _any_pending_pickup(session)
+    orders = [p.order for p in session.pending_orders.values()]
+    try:
+        plan = batching.plan_batch(session.graph, start_point, orders)
+    except Exception:
+        return  # el insight de batching es informativo; nunca debe tumbar el tick
+    if plan is None or plan.time_saved_seconds < 30:
+        return
+
+    _log(
+        session,
+        "order_generated",
+        f"Batching tip: doing these {len(orders)} pending orders together saves "
+        f"~{plan.time_saved_seconds / 60:.0f} min vs. one at a time.",
+    )
+
+
+def _any_pending_pickup(session: SimulationSession) -> tuple[float, float]:
+    first = next(iter(session.pending_orders.values()))
+    return (first.order["pickup_lat"], first.order["pickup_lon"])
+
+
+def _to_pending_out(session: SimulationSession, order_id: str, pending: PendingOrder) -> PendingOrderOut:
     order = pending.order
     evaluation = pending.evaluation
+
+    # should_accept es una recomendacion (el conductor sigue decidiendo via
+    # /simulation/decide, ver PendingOrdersPanel.tsx): en vez del corte
+    # estatico Score > 0, usa el umbral dinamico de decision.policy, que se
+    # vuelve mas permisivo si el repartidor va atrasado en su ritmo de
+    # pedidos aceptados.
+    policy_state = policy.PolicyState(
+        orders_accepted=session.orders_accepted,
+        virtual_minutes_elapsed=session.clock.virtual_minute(),
+    )
+    recommendation = policy.should_accept(evaluation.score, policy_state)
+
     return PendingOrderOut(
         order_id=order_id,
         pickup_name=order.get("pickup_name"),
@@ -155,7 +210,7 @@ def _to_pending_out(order_id: str, pending: PendingOrder) -> PendingOrderOut:
         gas_cost=evaluation.distance_km * evaluation.gas_cost_per_km,
         time_cost=evaluation.time_minutes * settings.time_cost_per_minute,
         score=evaluation.score,
-        should_accept=evaluation.should_accept,
+        should_accept=recommendation,
     )
 
 
@@ -168,7 +223,7 @@ def _to_state(session: SimulationSession) -> SimulationState:
         is_finished=session.finished,
         net_earnings=round(session.net_earnings, 2),
         god_mode_preset=session.god_mode_preset,
-        pending_orders=[_to_pending_out(oid, p) for oid, p in session.pending_orders.items()],
+        pending_orders=[_to_pending_out(session, oid, p) for oid, p in session.pending_orders.items()],
         events=[SimEventOut(**e) for e in session.events],
     )
 
@@ -238,6 +293,15 @@ def decide_order(payload: DecisionRequest, db: Session = Depends(get_session)):
     net_delta = evaluation.score if payload.accept else 0.0
     session.net_earnings += net_delta
 
+    if payload.accept:
+        session.orders_accepted += 1
+        # No hay simulacion continua de movimiento todavia (ver
+        # engine/routing.py y el TODO de posicion en vivo en MapView.tsx):
+        # como aproximacion, el repartidor "queda" en el dropoff de la
+        # ultima orden aceptada, para que la SIGUIENTE evaluacion (y el
+        # insight de batching) parta de ahi en vez de siempre-cero.
+        session.delivery_agent.position = (pending.order["dropoff_lat"], pending.order["dropoff_lon"])
+
     db.add(
         TripRecord(
             run_id=session.run_id,
@@ -290,13 +354,28 @@ def god_mode(payload: GodModeRequest, db: Session = Depends(get_session)):
     if payload.preset is None:
         session.hour_override = None
         session.god_mode_preset = None
-        _log(session, "god_mode", "Traffic back to normal.")
+        if session.active_closure is not None:
+            clear_road_closure(session.graph, session.active_closure["u"], session.active_closure["v"])
+            session.active_closure = None
+        _log(session, "god_mode", "Traffic back to normal, roads reopened.")
     else:
         if payload.preset not in GOD_MODE_PRESETS:
             raise HTTPException(400, f"Unknown preset, options: {list(GOD_MODE_PRESETS)}")
         session.hour_override = GOD_MODE_PRESETS[payload.preset]
         session.god_mode_preset = payload.preset
         _log(session, "god_mode", f"God Mode: jumped to {payload.preset} traffic.")
+
+        # El reto pide que el agente reaccione a un cierre de calle a mitad
+        # de turno ademas del surge de trafico; no hay un boton nuevo en la
+        # UI para esto (no se toco el frontend), asi que se aprovecha el
+        # preset de hora pico de salida que ya existe.
+        if payload.preset == ROAD_CLOSURE_PRESET and session.active_closure is None:
+            near = session.delivery_agent.position or (settings.city_center_lat, settings.city_center_lon)
+            closure = simulate_random_closure(session.graph, near_point=near)
+            if closure is not None:
+                session.active_closure = closure
+                street = closure["street_name"] or "a nearby street"
+                _log(session, "god_mode", f"Accident reported on {street} — the agent must reroute around it.")
 
     _tick(session, db)
     return _to_state(session)
