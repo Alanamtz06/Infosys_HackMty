@@ -4,7 +4,7 @@ interface Props {
 
 export function AuditExplanationCard({ text }: Props) {
   return (
-    <div className="max-w-md rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3 text-sm text-neutral-100">
+    <div className="animate-fade-up max-w-md rounded-lg border border-plum/25 bg-blush/20 p-3 text-sm text-ink">
       {text}
     </div>
   );

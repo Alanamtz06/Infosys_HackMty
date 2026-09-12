@@ -9,7 +9,10 @@ interface Props {
 export function OrderMarker({ order }: Props) {
   return (
     <Marker latitude={order.pickup_lat} longitude={order.pickup_lon}>
-      <div className="h-3 w-3 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50" />
+      <div className="animate-pop-in relative flex h-6 w-6 items-center justify-center">
+        <span className="absolute h-6 w-6 animate-pulse-ring rounded-full bg-blush/70" />
+        <span className="relative z-10 h-3 w-3 rounded-full bg-blush ring-2 ring-plum" />
+      </div>
     </Marker>
   );
 }

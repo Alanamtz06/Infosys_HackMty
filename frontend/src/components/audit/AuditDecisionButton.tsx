@@ -26,9 +26,9 @@ export function AuditDecisionButton({ orderId }: Props) {
       <button
         onClick={handleAudit}
         disabled={loading}
-        className="rounded-md bg-indigo-500 px-3 py-1.5 text-sm text-white hover:bg-indigo-400 disabled:opacity-50"
+        className="rounded-md bg-plum px-3 py-1.5 text-sm font-medium text-paper shadow-[0_2px_8px_rgba(104,73,89,0.35)] transition duration-150 ease-out hover:bg-charcoal active:scale-95 disabled:opacity-50 disabled:shadow-none"
       >
-        {loading ? "Auditando..." : "Auditar Decisión"}
+        {loading ? "Auditando..." : "Auditar decisión"}
       </button>
       {explanation && <AuditExplanationCard text={explanation} />}
     </div>

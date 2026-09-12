@@ -29,10 +29,10 @@ export function GodModeButtons() {
     <div className="flex flex-wrap items-center gap-2">
       <button
         onClick={resetToNormal}
-        className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+        className={`rounded-full border px-3 py-1.5 text-sm font-medium transition duration-150 ease-out active:scale-95 ${
           activePreset === null
-            ? "bg-emerald-500 text-black"
-            : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+            ? "border-plum bg-plum text-paper shadow-[0_2px_8px_rgba(104,73,89,0.35)]"
+            : "border-dust bg-white text-charcoal hover:border-plum/30 hover:bg-dust/30"
         }`}
       >
         Normal
@@ -41,10 +41,10 @@ export function GodModeButtons() {
         <button
           key={key}
           onClick={() => applyPreset(key)}
-          className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
+          className={`rounded-full border px-3 py-1.5 text-sm font-medium transition duration-150 ease-out active:scale-95 ${
             activePreset === key
-              ? "bg-amber-500 text-black"
-              : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+              ? "border-plum/40 bg-blush text-plum shadow-[0_2px_8px_rgba(229,202,217,0.7)]"
+              : "border-dust bg-white text-charcoal hover:border-plum/30 hover:bg-dust/30"
           }`}
         >
           {label}

@@ -14,13 +14,15 @@ interface Props {
 
 export function TimeFilterSelector({ value, onChange }: Props) {
   return (
-    <div className="flex gap-1">
+    <div className="animate-fade-up flex flex-wrap gap-1" style={{ animationDelay: "60ms" }}>
       {PERIODS.map((p) => (
         <button
           key={p.key}
           onClick={() => onChange(p.key)}
-          className={`rounded-md px-3 py-1 text-sm ${
-            value === p.key ? "bg-emerald-500 text-black" : "bg-neutral-800 text-neutral-200"
+          className={`rounded-full border px-3 py-1 text-sm font-medium transition duration-150 ease-out active:scale-95 ${
+            value === p.key
+              ? "border-plum bg-plum text-paper shadow-[0_2px_8px_rgba(104,73,89,0.35)]"
+              : "border-dust bg-white text-charcoal hover:border-plum/30 hover:bg-blush/25"
           }`}
         >
           {p.label}

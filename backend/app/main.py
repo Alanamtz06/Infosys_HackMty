@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audit, orders, simulation, stats
+from app.api.routes import audit, auth, orders, simulation, stats
 from app.config import settings
 
 app = FastAPI(title="Delivery Sim ZMM")
@@ -16,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(simulation.router)
 app.include_router(orders.router)
 app.include_router(audit.router)

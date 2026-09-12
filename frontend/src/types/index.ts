@@ -25,3 +25,42 @@ export interface OrderDecision {
 export type GodModePreset = "manana" | "comida" | "salida_trabajo";
 
 export type AgentType = "inteligente" | "novato";
+
+export type VehicleType = "moto" | "auto";
+
+export interface User {
+  id: string;
+  username: string;
+  vehicle_type: VehicleType;
+}
+
+export interface LiveDashboardSummary {
+  agent_type: AgentType;
+  vehicle: VehicleType;
+  trips_last_5min: number;
+  accepted_last_5min: number;
+  net_score_last_5min: number;
+  avg_score_last_5min: number;
+}
+
+export interface LiveTrip {
+  id: number;
+  created_at: string;
+  run_id: string;
+  order_id: string;
+  agent_type: AgentType;
+  vehicle: VehicleType;
+  accepted: boolean;
+  fare: number;
+  distance_km: number;
+  time_minutes: number;
+  gas_cost_live: number;
+  time_cost_live: number;
+  score_live: number;
+  username: string | null;
+}
+
+export interface LiveDashboardResponse {
+  summary: LiveDashboardSummary[];
+  recent_trips: LiveTrip[];
+}
