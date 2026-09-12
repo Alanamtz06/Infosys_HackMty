@@ -48,4 +48,6 @@ def dynamic_threshold(state: PolicyState) -> float:
 
 
 def should_accept(score: float, state: PolicyState) -> bool:
-    return score >= dynamic_threshold(state)
+    # bool() explicito: si `score` viene de un calculo con atributos del grafo
+    # de OSMnx es un numpy.float64 y la comparacion devolveria numpy.bool_.
+    return bool(score >= dynamic_threshold(state))

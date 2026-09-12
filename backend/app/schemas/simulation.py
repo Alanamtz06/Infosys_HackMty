@@ -44,6 +44,31 @@ class SimulationState(BaseModel):
     pending_orders: list[PendingOrderOut]
     events: list[SimEventOut]
 
+    # --- Campos aditivos (el frontend actual no los lee todavia) -------------
+    # JSON extra no rompe nada en TypeScript: `SimulationState` en
+    # frontend/src/types/index.ts simplemente no los declara. Estan aqui para
+    # que el integrante que trabaje el frontend los pueda usar sin tocar el
+    # backend otra vez.
+
+    # Hora simulada completa (ISO sin zona horaria, a proposito: ver
+    # engine/virtual_clock.py::WorldClock.iso_timestamp).
+    sim_time: str
+    time_acceleration: float
+
+    # Posicion en vivo del repartidor, interpolada sobre su ruta real. Para
+    # reemplazar PLACEHOLDER_RIDER_POSITION en MapView.tsx.
+    courier_lat: float | None
+    courier_lon: float | None
+    active_deliveries: int
+    deliveries_completed: int
+
+    orders_accepted: int
+
+    # Acumulado del agente novato sobre el MISMO stream de ordenes: es lo que
+    # ScoreboardModal.tsx necesita para `noviceEarnings`.
+    novice_earnings: float
+    session_id: str
+
 
 class DecisionRequest(BaseModel):
     run_id: str

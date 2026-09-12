@@ -97,6 +97,12 @@ SELECT add_continuous_aggregate_policy(
     if_not_exists => TRUE
 );
 
+-- Agregacion en tiempo real: la policy de arriba solo materializa hasta hace
+-- una hora, asi que sin esto el filtro "Day" del perfil saldria vacio aunque
+-- el turno este corriendo ahora mismo. Con materialized_only = false la vista
+-- une lo ya materializado con lo que todavia esta crudo en trip_records.
+ALTER MATERIALIZED VIEW trip_records_daily SET (timescaledb.materialized_only = false);
+
 -- "Gasolina ahorrada" / "Tiempo ahorrado" del Perfil del Repartidor no son
 -- columnas propias: se calculan comparando, para runs con el mismo
 -- session_id, gas_cost/time_cost de agent_type='novato' contra

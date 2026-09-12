@@ -1,13 +1,22 @@
-"""Agente de entorno (trafico): vigila el reloj virtual y actualiza los pesos del grafo."""
+"""Agente de entorno (trafico): vigila el reloj y actualiza los pesos del grafo."""
+
+from typing import Protocol
 
 import networkx as nx
 
 from app.engine.graph_loader import apply_traffic
-from app.engine.virtual_clock import VirtualClock
+
+
+class HasVirtualHour(Protocol):
+    """Cualquier reloj que sepa que hora del dia es: `WorldClock` (el global
+    que usa la simulacion en vivo) o `VirtualClock` (turno de duracion fija).
+    Ver app/engine/virtual_clock.py."""
+
+    def virtual_hour(self) -> float: ...
 
 
 class TrafficAgent:
-    def __init__(self, graph: nx.MultiDiGraph, clock: VirtualClock):
+    def __init__(self, graph: nx.MultiDiGraph, clock: HasVirtualHour):
         self.graph = graph
         self.clock = clock
 

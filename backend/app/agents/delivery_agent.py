@@ -3,7 +3,7 @@
 import networkx as nx
 
 from app.decision.scoring import OrderEvaluation, VehicleType
-from app.engine.routing import shortest_route
+from app.engine.routing import try_shortest_route
 
 
 class DeliveryAgent:
@@ -12,17 +12,39 @@ class DeliveryAgent:
         self.vehicle = vehicle
         self.position: tuple[float, float] | None = None
 
-    def evaluate_order(self, pickup: tuple[float, float], dropoff: tuple[float, float], fare: float) -> OrderEvaluation:
+    def evaluate_order(
+        self,
+        pickup: tuple[float, float],
+        dropoff: tuple[float, float],
+        fare: float,
+        origin: tuple[float, float] | None = None,
+    ) -> OrderEvaluation | None:
         """Evalua una orden en DOS tramos: de donde esta el repartidor hasta
         el pickup, y del pickup al dropoff. Antes esto calculaba una sola
         ruta directa a `dropoff` (si `self.position` era `None`, arrancaba
         desde `pickup` y de pura casualidad quedaba bien; si `self.position`
         ya tenia un valor, la ruta directa a `dropoff` se saltaba el pickup
         por completo) — subestimaba el costo real de ir a recoger el pedido.
+
+        `origin` permite evaluar desde un punto distinto al actual (p.ej. el
+        dropoff de la ultima entrega ya aceptada, que es donde el repartidor
+        va a estar realmente cuando pueda atender esta orden).
+
+        Devuelve `None` si el pickup o el dropoff quedaron inalcanzables
+        (tipicamente por un cierre de calle): la orden no es servible y
+        quien llama debe descartarla, no tratarla como gratis.
         """
-        origin = self.position or pickup
-        _, time_to_pickup_s, distance_to_pickup_m = shortest_route(self.graph, origin, pickup)
-        _, time_to_dropoff_s, distance_to_dropoff_m = shortest_route(self.graph, pickup, dropoff)
+        start = origin or self.position or pickup
+
+        to_pickup = try_shortest_route(self.graph, start, pickup)
+        if to_pickup is None:
+            return None
+        to_dropoff = try_shortest_route(self.graph, pickup, dropoff)
+        if to_dropoff is None:
+            return None
+
+        _, time_to_pickup_s, distance_to_pickup_m = to_pickup
+        _, time_to_dropoff_s, distance_to_dropoff_m = to_dropoff
 
         return OrderEvaluation(
             fare=fare,

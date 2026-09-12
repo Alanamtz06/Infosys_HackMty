@@ -8,6 +8,7 @@ pero explora muchos menos nodos que Dijkstra. Importa porque
 disparar un calculo de ruta nuevo.
 """
 
+import math
 import random
 
 import networkx as nx
@@ -27,19 +28,26 @@ def _travel_time_heuristic(graph: nx.MultiDiGraph, max_speed_kph: float = _MAX_S
         y1, x1 = graph.nodes[u]["y"], graph.nodes[u]["x"]
         y2, x2 = graph.nodes[v]["y"], graph.nodes[v]["x"]
         dist_m = ox.distance.great_circle(y1, x1, y2, x2)
-        return dist_m / max_speed_mps
+        return float(dist_m) / max_speed_mps
 
     return heuristic
 
 
 def _path_time_and_distance(graph: nx.MultiDiGraph, route: list[int]) -> tuple[float, float]:
+    """Devuelve floats de Python, no numpy.
+
+    Los atributos del grafo de OSMnx llegan como `numpy.float64`, y si se
+    dejan pasar contaminan todo lo que se calcule con ellos: el Score
+    termina siendo un `np.float64` y `should_accept` un `np.bool_`, que
+    Pydantic serializa con un DeprecationWarning en cada respuesta.
+    """
     travel_time = sum(
         min(d["travel_time"] for d in graph.get_edge_data(u, v).values()) for u, v in zip(route[:-1], route[1:])
     )
     distance = sum(
         min(d["length"] for d in graph.get_edge_data(u, v).values()) for u, v in zip(route[:-1], route[1:])
     )
-    return travel_time, distance
+    return float(travel_time), float(distance)
 
 
 def shortest_route(graph: nx.MultiDiGraph, origin_point: tuple[float, float], dest_point: tuple[float, float]):
@@ -56,6 +64,32 @@ def shortest_route(graph: nx.MultiDiGraph, origin_point: tuple[float, float], de
     return route, travel_time, distance
 
 
+def try_shortest_route(
+    graph: nx.MultiDiGraph,
+    origin_point: tuple[float, float],
+    dest_point: tuple[float, float],
+) -> tuple[list[int], float, float] | None:
+    """Igual que `shortest_route` pero devuelve `None` en vez de explotar
+    cuando el destino es inalcanzable.
+
+    Dos formas distintas de "inalcanzable" que hay que cubrir las dos:
+      - `networkx.NetworkXNoPath` / `NodeNotFound`: no existe ningun camino.
+      - un camino con peso infinito: si la UNICA arista que conecta dos
+        puntos esta cerrada (`apply_road_closure`), A* igual devuelve ese
+        camino, con tiempo infinito, sin lanzar excepcion.
+
+    Usalo en cualquier parte que corra dentro del loop de la simulacion: un
+    cierre de calle no debe tumbar `/simulation/state`.
+    """
+    try:
+        route, travel_time, distance = shortest_route(graph, origin_point, dest_point)
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return None
+    if not math.isfinite(travel_time):
+        return None
+    return route, travel_time, distance
+
+
 def get_travel_time_matrix(graph: nx.MultiDiGraph, points: list[tuple[float, float]]) -> np.ndarray:
     """Matriz NxN de tiempos de viaje (segundos) entre `points` (lat, lon).
 
@@ -63,21 +97,73 @@ def get_travel_time_matrix(graph: nx.MultiDiGraph, points: list[tuple[float, flo
     (capa de batching): cada `points[i]` se snapea al nodo del grafo mas
     cercano una sola vez, y la diagonal es 0. `float('inf')` si un cierre de
     calle deja un par sin ruta.
+
+    Hace UN Dijkstra por origen (a todos los destinos de una pasada) en vez
+    de N*N busquedas A* independientes. La diferencia importa mucho: esto
+    corre dentro del tick de `/simulation/state`, y con N*N A* un solo tick
+    llegaba a tardar decenas de segundos — suficiente para que el reloj
+    acelerado del mundo se comiera media hora simulada en una sola request.
     """
     nodes = [ox.nearest_nodes(graph, lon, lat) for lat, lon in points]
-    heuristic = _travel_time_heuristic(graph)
+    targets = set(nodes)
 
     n = len(nodes)
-    matrix = np.zeros((n, n))
+    matrix = np.full((n, n), float("inf"))
+    np.fill_diagonal(matrix, 0.0)
+
     for i, origin in enumerate(nodes):
+        lengths = nx.single_source_dijkstra_path_length(graph, origin, weight="travel_time")
         for j, dest in enumerate(nodes):
             if i == j:
                 continue
-            try:
-                matrix[i, j] = nx.astar_path_length(graph, origin, dest, heuristic=heuristic, weight="travel_time")
-            except nx.NetworkXNoPath:
-                matrix[i, j] = float("inf")
+            if dest in targets and dest in lengths:
+                matrix[i, j] = lengths[dest]
     return matrix
+
+
+def route_total_time(graph: nx.MultiDiGraph, route: list[int]) -> float:
+    """Tiempo total (segundos) de recorrer `route` con el trafico actual."""
+    if len(route) < 2:
+        return 0.0
+    travel_time, _distance = _path_time_and_distance(graph, route)
+    return travel_time
+
+
+def position_along_route(
+    graph: nx.MultiDiGraph,
+    route: list[int],
+    elapsed_seconds: float,
+) -> tuple[float, float]:
+    """(lat, lon) del punto donde va el repartidor tras `elapsed_seconds` sobre `route`.
+
+    Interpola linealmente DENTRO de la arista en curso, en proporcion al
+    tiempo de viaje de esa arista — no es exacto sobre la geometria real de
+    la calle (ignora la curvatura intermedia de OSM), pero es suficiente
+    para mover un marcador en el mapa de forma continua y creible.
+    """
+    if not route:
+        raise ValueError("route vacia")
+    if len(route) == 1 or elapsed_seconds <= 0:
+        node = graph.nodes[route[0]]
+        return float(node["y"]), float(node["x"])
+
+    remaining = elapsed_seconds
+    for u, v in zip(route[:-1], route[1:]):
+        edge_time = min(d["travel_time"] for d in graph.get_edge_data(u, v).values())
+        if not math.isfinite(edge_time):
+            edge_time = 0.0
+        if remaining <= edge_time or edge_time == 0:
+            fraction = (remaining / edge_time) if edge_time > 0 else 1.0
+            fraction = min(max(fraction, 0.0), 1.0)
+            start, end = graph.nodes[u], graph.nodes[v]
+            return (
+                float(start["y"] + (end["y"] - start["y"]) * fraction),
+                float(start["x"] + (end["x"] - start["x"]) * fraction),
+            )
+        remaining -= edge_time
+
+    last = graph.nodes[route[-1]]
+    return float(last["y"]), float(last["x"])
 
 
 def apply_road_closure(graph: nx.MultiDiGraph, u: int, v: int) -> None:

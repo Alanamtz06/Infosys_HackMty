@@ -1,8 +1,18 @@
-"""Consultas de analitica historica para el Perfil del Repartidor (filtros: dia/semana/mes/etc)."""
+"""Consultas de analitica para el Perfil del Repartidor y el Marcador Global.
 
-from datetime import datetime, timedelta
+El trabajo pesado lo hace Postgres/Tiger Data:
+  - rangos largos (semana ... 1 año) leen `trip_records_daily`, el continuous
+    aggregate que ya agrupa por dia via `time_bucket` (ver db/schema.sql);
+  - el "ahora mismo" del dashboard usa las vistas en vivo
+    (`live_dashboard_summary`, `live_trip_scores`), que recalculan
+    `calculate_score()` en cada request.
+Python solo pivotea el resultado (dos agentes x N dias es trivial) para
+entregarlo en la forma que espera el frontend.
+"""
 
-from sqlalchemy import select
+from datetime import date, datetime, timedelta
+
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.db.models import TripRecord
@@ -22,3 +32,96 @@ def get_trips_since(session: Session, period: str) -> list[TripRecord]:
     since = datetime.utcnow() - delta
     stmt = select(TripRecord).where(TripRecord.created_at >= since).order_by(TripRecord.created_at)
     return list(session.scalars(stmt))
+
+
+_DAILY_BY_AGENT_SQL = text("""
+    SELECT
+        (day AT TIME ZONE 'UTC')::date AS bucket_day,
+        agent_type,
+        COALESCE(sum(net_earnings), 0)   AS net_earnings,
+        COALESCE(sum(gas_cost), 0)       AS gas_cost,
+        COALESCE(sum(time_cost), 0)      AS time_cost,
+        COALESCE(sum(time_minutes), 0)   AS time_minutes,
+        COALESCE(sum(trips), 0)          AS trips,
+        COALESCE(sum(accepted_trips), 0) AS accepted_trips
+    FROM trip_records_daily
+    WHERE day >= :since
+    GROUP BY bucket_day, agent_type
+    ORDER BY bucket_day
+""")
+
+
+def get_daily_history(session: Session, period: str, user_id: str | None = None) -> list[dict]:
+    """Serie por dia lista para el EarningsChart del frontend.
+
+    Cada punto trae exactamente las llaves de `EarningsPoint`
+    (frontend/src/components/profile/EarningsChart.tsx):
+      date, netEarnings, gasSaved, timeSaved
+
+    `gasSaved`/`timeSaved` no son columnas: son lo que el agente inteligente
+    se ahorro frente al novato ESE dia (novato - inteligente), como documenta
+    db/schema.sql. `gasSaved` esta en MXN de gasolina no gastada (el frontend
+    hoy lo rotula en litros — ver nota en el README del backend).
+    """
+    since = datetime.utcnow() - PERIOD_TO_TIMEDELTA[period]
+    rows = session.execute(_DAILY_BY_AGENT_SQL, {"since": since}).mappings().all()
+
+    by_day: dict[date, dict[str, dict]] = {}
+    for row in rows:
+        by_day.setdefault(row["bucket_day"], {})[row["agent_type"]] = dict(row)
+
+    points: list[dict] = []
+    for day in sorted(by_day):
+        smart = by_day[day].get("inteligente", {})
+        novice = by_day[day].get("novato", {})
+        gas_saved = float(novice.get("gas_cost", 0) or 0) - float(smart.get("gas_cost", 0) or 0)
+        time_saved = float(novice.get("time_minutes", 0) or 0) - float(smart.get("time_minutes", 0) or 0)
+        points.append(
+            {
+                "date": day.isoformat(),
+                "netEarnings": round(float(smart.get("net_earnings", 0) or 0), 2),
+                "gasSaved": round(max(gas_saved, 0.0), 2),
+                "timeSaved": round(max(time_saved, 0.0), 1),
+                "trips": int(smart.get("trips", 0) or 0),
+                "acceptedTrips": int(smart.get("accepted_trips", 0) or 0),
+                "noviceNetEarnings": round(float(novice.get("net_earnings", 0) or 0), 2),
+            }
+        )
+    return points
+
+
+_SESSION_TOTALS_SQL = text("""
+    SELECT
+        sr.agent_type,
+        COALESCE(sum(tr.net_earnings_delta), 0)                         AS net_earnings,
+        count(*)                                                        AS trips,
+        count(*) FILTER (WHERE tr.accepted)                             AS accepted_trips,
+        COALESCE(sum(tr.gas_cost) FILTER (WHERE tr.accepted), 0)        AS gas_cost,
+        COALESCE(sum(tr.time_minutes) FILTER (WHERE tr.accepted), 0)    AS time_minutes,
+        COALESCE(avg(tr.score) FILTER (WHERE tr.accepted), 0)           AS avg_score
+    FROM trip_records tr
+    JOIN simulation_runs sr ON sr.id = tr.run_id
+    WHERE sr.session_id = :session_id
+    GROUP BY sr.agent_type
+""")
+
+
+def get_latest_session_id(session: Session) -> str | None:
+    """El `session_id` mas reciente que empareja un turno inteligente con su
+    espejo novato (lo crea /simulation/start)."""
+    return session.execute(
+        text("""
+            SELECT session_id
+            FROM simulation_runs
+            WHERE session_id IS NOT NULL
+            GROUP BY session_id
+            ORDER BY max(started_at) DESC
+            LIMIT 1
+        """)
+    ).scalar()
+
+
+def get_session_scoreboard(session: Session, session_id: str) -> dict[str, dict]:
+    """Totales por agente para un `session_id` (inteligente vs novato)."""
+    rows = session.execute(_SESSION_TOTALS_SQL, {"session_id": session_id}).mappings().all()
+    return {row["agent_type"]: {k: v for k, v in dict(row).items() if k != "agent_type"} for row in rows}

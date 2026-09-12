@@ -11,6 +11,21 @@ class Settings(BaseSettings):
 
     shift_duration_minutes: int = 180
 
+    # Reloj del mundo (engine/virtual_clock.py::WorldClock): cuantas veces mas
+    # rapido corre el tiempo simulado que el real. 30 = un segundo real son 30
+    # segundos simulados (una hora simulada cada 2 minutos reales, un dia
+    # completo en ~48 minutos reales).
+    #
+    # No subirlo mucho mas sin medir: a 120x una entrega de 15 minutos se
+    # resolvia en 7 segundos reales — el repartidor "aparecia" en el destino
+    # y no habia forma de leer una oferta antes de que cambiara el mundo.
+    time_acceleration: float = 30.0
+
+    # Ordenes esperadas por hora simulada (fuera de hora pico). La generacion
+    # es proporcional al tiempo SIMULADO transcurrido, no a cada poll del
+    # frontend, para que no dependa de la frecuencia de sondeo.
+    orders_per_sim_hour: float = 6.0
+
     frontend_origin: str = "http://localhost:5173"
 
     # Costos operativos (agente repartidor)
