@@ -18,6 +18,19 @@ class TrafficRule:
     congestion_level: str
 
 
+# Friccion urbana de base, aplicada a TODA arista a cualquier hora.
+#
+# `ox.add_edge_travel_times` calcula tiempo de flujo libre: longitud entre
+# velocidad maxima permitida, sin semaforos, sin vueltas, sin topes, sin
+# buscar donde estacionarse. Con eso un repartidor cruzaba la ZMM a ~57 km/h
+# de promedio, que no es una velocidad de reparto real (un repartidor en moto
+# en ciudad promedia mas bien 20-30 km/h puerta a puerta).
+#
+# Este factor NO reemplaza las reglas por avenida de abajo: se multiplica
+# antes que ellas. 2.0 deja el promedio en ~28 km/h fuera de hora pico.
+BASE_CITY_FRICTION = 2.0
+
+
 TRAFFIC_RULES: list[TrafficRule] = [
     TrafficRule(("Paseo de los Leones",), "Hacia Gonzalitos (Oriente)", 7.0, 9.5, 3.0, "Critico"),
     TrafficRule(("Paseo de los Leones",), "Hacia Cumbres (Poniente)", 17.5, 20.5, 3.0, "Critico"),

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # frontend, para que no dependa de la frecuencia de sondeo.
     orders_per_sim_hour: float = 6.0
 
+    # Estado de los turnos en curso compartido entre workers de uvicorn. Vacio
+    # (default) = estado en memoria del proceso, que solo sirve con un worker.
+    # Ver api/routes/session_store.py.
+    redis_url: str = ""
+
     frontend_origin: str = "http://localhost:5173"
 
     # Costos operativos (agente repartidor)
@@ -33,6 +38,21 @@ class Settings(BaseSettings):
     gas_cost_per_km_auto: float = 2.00
     time_cost_per_minute: float = 1.50
     max_batch_orders: int = 3
+
+    # Minutos que se van fuera de la carretera en cada pedido: esperar a que
+    # el restaurante saque la comida + entregarla en la puerta. No estaba
+    # modelado y es un costo real que cambia la decision: con ~8 minutos
+    # fijos, un pedido de tarifa baja no se salva por estar cerca.
+    service_time_minutes: float = 8.0
+
+    # Tarifa de reserva (decision/policy.py): MXN NETOS por hora que el
+    # repartidor exige para ocupar su tiempo con un pedido. "Netos" = ya
+    # descontados gasolina y el valor del tiempo, asi que $30/h de Score es
+    # margen por encima de los $90/h a los que la formula ya valora su hora.
+    #
+    # Calibrado sobre la distribucion real del flujo: con $30 el agente
+    # rechaza ~55% de las ofertas fuera de hora pico y ~20% durante el surge.
+    reservation_rate_mxn_per_hour: float = 30.0
 
     class Config:
         env_file = ".env"

@@ -30,7 +30,7 @@ def get_random_order():
     """
     graph = load_graph()
     restaurants = load_restaurants()
-    return generate_order(graph, restaurants)
+    return generate_order(graph, restaurants, virtual_hour=world_clock.virtual_hour())
 
 
 @router.post("/evaluate")

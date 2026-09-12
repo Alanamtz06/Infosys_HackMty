@@ -14,6 +14,7 @@ en el dropoff de la ultima orden que tomo.
 
 import networkx as nx
 
+from app.config import settings
 from app.decision.scoring import OrderEvaluation, VehicleType
 from app.engine.routing import try_shortest_route
 
@@ -46,7 +47,10 @@ class NoviceAgent:
         return OrderEvaluation(
             fare=fare,
             distance_km=(distance_to_pickup_m + distance_to_dropoff_m) / 1000,
-            time_minutes=(time_to_pickup_s + time_to_dropoff_s) / 60,
+            # Mismo tiempo de servicio que el agente inteligente: la
+            # comparacion tiene que medir la decision, no una ventaja de
+            # modelado de uno de los dos.
+            time_minutes=(time_to_pickup_s + time_to_dropoff_s) / 60 + settings.service_time_minutes,
             vehicle=self.vehicle,
         )
 

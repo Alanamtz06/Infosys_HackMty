@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select, text
 
+from app.agents import order_generator
 from app.config import settings
 from app.db.connection import SessionLocal, engine
 from app.db.models import Order, SimulationRun, TripRecord, User
@@ -38,10 +39,16 @@ SEED_USERNAME = "demo_seed"
 SEED_PASSWORD_HASH = "$2b$12$seedseedseedseedseedseedseedseedseedseedseedseedseedseedse"
 
 ORDERS_PER_DAY = (8, 22)
-FARE_RANGE = (40.0, 140.0)
-DISTANCE_KM_RANGE = (1.2, 14.0)
-# Minutos por km, incluyendo el tramo de ir a recoger: mas alto en hora pico.
-MINUTES_PER_KM = (2.4, 4.8)
+
+# La economia sembrada replica la del turno en vivo (ver
+# agents/order_generator.py y engine/traffic_rules.py::BASE_CITY_FRICTION):
+# la plataforma paga por la distancia del pedido, el repartidor tambien gasta
+# en llegar al pickup, y cada pedido se lleva `service_time_minutes` fuera de
+# la carretera. Si el historial no usara la misma economia, el perfil
+# mostraria un negocio que no se parece al que el usuario acaba de jugar.
+DELIVERY_KM_RANGE = (1.0, 9.0)  # distancia del pedido (restaurante -> casa)
+DEADHEAD_KM_RANGE = (0.5, 11.0)  # lo que el repartidor recorre para ir a recoger
+AVERAGE_SPEED_KMH = (22.0, 32.0)  # velocidad puerta a puerta realista en ciudad
 PEAK_HOURS = [(13.0, 15.0), (19.0, 22.0)]
 
 
@@ -55,12 +62,22 @@ def _score(fare: float, distance_km: float, time_minutes: float, vehicle: str) -
 
 
 def _random_order_shape(virtual_hour: float) -> tuple[float, float, float]:
-    """(fare, distance_km, time_minutes) de una orden plausible."""
-    fare = random.uniform(*FARE_RANGE)
-    distance_km = random.uniform(*DISTANCE_KM_RANGE)
+    """(fare, distance_km, time_minutes) de una orden plausible.
+
+    `distance_km`/`time_minutes` son lo que le cuesta al repartidor (incluye
+    ir a recoger y el tiempo de servicio); `fare` sale de la distancia del
+    pedido nada mas, con el mismo modelo que el generador en vivo.
+    """
+    delivery_km = random.uniform(*DELIVERY_KM_RANGE)
+    deadhead_km = random.uniform(*DEADHEAD_KM_RANGE)
+    total_km = delivery_km + deadhead_km
+
     peak = any(start <= virtual_hour <= end for start, end in PEAK_HOURS)
-    minutes_per_km = random.uniform(*MINUTES_PER_KM) * (1.35 if peak else 1.0)
-    return fare, distance_km, distance_km * minutes_per_km
+    speed_kmh = random.uniform(*AVERAGE_SPEED_KMH) / (1.35 if peak else 1.0)
+    time_minutes = total_km / speed_kmh * 60 + settings.service_time_minutes
+
+    fare = order_generator.fare_for_distance(delivery_km, virtual_hour)
+    return fare, total_km, time_minutes
 
 
 def _get_or_create_seed_user(db) -> User:

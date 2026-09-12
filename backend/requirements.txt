@@ -19,5 +19,11 @@ scikit-learn==1.9.1
 # (numpy<1.27) y google-generativeai==0.8.3 (protobuf<6) de arriba.
 ortools==9.9.3963
 
+# Estado de turnos compartido entre workers (api/routes/session_store.py).
+# Solo se usa si REDIS_URL esta en el .env; sin eso el backend corre con
+# estado en memoria y no necesita un servidor de Redis.
+redis==8.1.0
+
 # tests (backend/tests/, ver backend/pytest.ini)
 pytest==9.1.1
+fakeredis==2.38.0

@@ -2,6 +2,7 @@
 
 import networkx as nx
 
+from app.config import settings
 from app.decision.scoring import OrderEvaluation, VehicleType
 from app.engine.routing import try_shortest_route
 
@@ -49,6 +50,8 @@ class DeliveryAgent:
         return OrderEvaluation(
             fare=fare,
             distance_km=(distance_to_pickup_m + distance_to_dropoff_m) / 1000,
-            time_minutes=(time_to_pickup_s + time_to_dropoff_s) / 60,
+            # Al tiempo en la carretera se le suma el tiempo de servicio
+            # (esperar la comida + entregarla): ver settings.service_time_minutes.
+            time_minutes=(time_to_pickup_s + time_to_dropoff_s) / 60 + settings.service_time_minutes,
             vehicle=self.vehicle,
         )

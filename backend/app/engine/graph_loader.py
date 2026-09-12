@@ -7,7 +7,7 @@ import networkx as nx
 import osmnx as ox
 
 from app.config import settings
-from app.engine.traffic_rules import active_multiplier
+from app.engine.traffic_rules import BASE_CITY_FRICTION, active_multiplier
 
 # El grafo de la ZMM no cambia durante el turno; se descarga una sola vez por
 # proceso porque la consulta a OSM/Overpass toma varios segundos.
@@ -34,7 +34,12 @@ def load_graph(force_refresh: bool = False) -> nx.MultiDiGraph:
 
 
 def apply_traffic(graph: nx.MultiDiGraph, virtual_hour: float) -> None:
-    """Actualiza `travel_time` de cada arista segun la hora virtual y `traffic_rules`."""
+    """Actualiza `travel_time` de cada arista segun la hora virtual y `traffic_rules`.
+
+    Sobre el tiempo de flujo libre de OSMnx se aplica la friccion urbana de
+    base (`BASE_CITY_FRICTION`, siempre) y, si la calle esta en una ventana
+    de hora pico, el multiplicador de esa regla (el mayor si coincide varias).
+    """
     for _, _, data in graph.edges(data=True):
         name = data.get("name")
         street_names = name if isinstance(name, list) else [name]
@@ -43,4 +48,4 @@ def apply_traffic(graph: nx.MultiDiGraph, virtual_hour: float) -> None:
             if not street:
                 continue
             multiplier = max(multiplier, active_multiplier(street, virtual_hour))
-        data["travel_time"] = data["base_travel_time"] * multiplier
+        data["travel_time"] = data["base_travel_time"] * BASE_CITY_FRICTION * multiplier

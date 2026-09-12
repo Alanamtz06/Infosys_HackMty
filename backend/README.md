@@ -39,12 +39,99 @@ tests/                Pytest — ver "Tests" abajo
 - **Decision** (`decision/scoring.py` + `decision/policy.py`): el Score
   (`Tarifa - Gasolina - Tiempo`) es la formula ya establecida y **no se
   toco** — sigue siendo la misma que `calculate_score()` en `db/schema.sql`
-  para que las vistas en vivo del dashboard no se desincronicen. Lo que si es
-  nuevo es `policy.should_accept`: en vez del corte estatico Score > 0, el
-  umbral baja si el repartidor va atrasado en su ritmo de pedidos aceptados
-  (ver docstring de `policy.py` para por que NO se porto el ajuste por
-  "tiempo restante de turno" del prototipo original de este algoritmo — el
-  `VirtualClock` de este backend corre en loop, sin fin conocido de antemano).
+  para que las vistas en vivo del dashboard no se desincronicen. Lo que
+  decide `policy.py` es otra cosa: si conviene OCUPAR el tiempo del
+  repartidor con ese pedido (ver abajo).
+
+### La regla de decision: tasa por hora vs tarifa de reserva
+
+El primer intento fue "aceptar si Score > 0" y **no medía nada**: sobre el
+flujo real el agente aceptaba ~83% de las ofertas y terminaba empatando con
+el novato que acepta todo (en una corrida quedaron literalmente iguales).
+
+La razon es que el recurso escaso es el tiempo, no las ofertas. Un pedido que
+deja $30 en 45 minutos paga $40/hora; uno que deja $25 en 15 minutos paga
+$100/hora. Aceptar el primero no solo deja menos, tambien tapa la agenda para
+los tres que vienen detras — y con la capacidad de un repartidor real, ~95%
+de las ofertas llegan cuando ya esta ocupado.
+
+Asi que `policy.should_accept` compara **MXN netos por hora** de la oferta
+contra una **tarifa de reserva** (`RESERVATION_RATE_MXN_PER_HOUR`, default
+$30/h netos), que se relaja hasta un 35% si el repartidor va atrasado de su
+ritmo objetivo: mejor un pedido mediocre que una hora parado. Un Score
+negativo se rechaza siempre.
+
+`policy.explain()` devuelve la razon en una linea y se registra en el log en
+vivo, para poder justificarle una decision a un juez sin abrir el codigo:
+
+```
+Accepted Tacos Rafa — net $45.92 MXN · $97/h net over 28 min clears the $30/h bar
+```
+
+Medido con `/simulation/benchmark` (turno de 8h, mismo stream de ordenes):
+
+| Turno arranca | Agente | Novato | Ventaja |
+|---|---|---|---|
+| 11:00 | $200.03 | $108.25 | **+$91.78 (+85%)** |
+| 13:00 | $268.96 | $210.85 | +$58.11 (+28%) |
+| 18:00 | $250.96 | $171.78 | +$79.18 (+46%) |
+
+Y no gana trabajando mas: en el turno de las 11:00 el agente facturo mas
+ocupando 295 minutos y 96 km, contra los 420 minutos y 139 km del novato.
+
+### La economia del turno (por que esta calibrada asi)
+
+Para que la decision signifique algo, tiene que haber ofertas malas. Tres
+piezas hacen eso, y las tres se calibraron midiendo rutas reales sobre el
+grafo de la ZMM:
+
+1. **La plataforma paga por el pedido, no por el viaje del repartidor**
+   (`order_generator.fare_for_distance`): la tarifa sale de la distancia
+   restaurante → casa. El tramo de ir a recoger no se paga, y es justo la
+   trampa real del oficio — un pedido que paga bien con el restaurante lejos
+   deja Score negativo.
+2. **Friccion urbana** (`traffic_rules.BASE_CITY_FRICTION`, 2.0):
+   `ox.add_edge_travel_times` da tiempo de flujo libre (sin semaforos, sin
+   vueltas, sin estacionarse) y con eso el repartidor cruzaba la ZMM a 57
+   km/h. Con el factor queda en ~28 km/h, que es velocidad de reparto real.
+3. **Tiempo de servicio** (`SERVICE_TIME_MINUTES`, 8): esperar la comida y
+   entregarla. No estaba modelado, y es lo que evita que un pedido de tarifa
+   baja se salve solo por estar cerca.
+
+Ademas las entregas son **locales** (`pois.random_house_near`): uno pide del
+restaurante que tiene cerca. Antes el destino era un nodo cualquiera del
+radio de 8 km, asi que el pedido promedio cruzaba la ciudad (18 km, 45 min) y
+un turno de 8 horas apenas daba para 10 pedidos.
+
+Resultado: ~65% de las ofertas dejan Score positivo fuera de hora pico y casi
+todas durante el surge — el agente tiene que discriminar, y el surge cambia
+la matematica como pide el reto.
+
+### Modo autonomo (`autonomous`)
+
+`/simulation/start` acepta `autonomous: true`: el agente decide solo, sin
+ordenes esperando al conductor (y `/simulation/decide` contesta 409). Es lo
+que hace comparable "agente vs baseline". El default es `false`, que es el
+modo del frontend: el humano decide y el agente recomienda (ver el comentario
+de `PendingOrdersPanel.tsx`) — el frontend no manda el campo y sigue igual.
+
+En modo autonomo el agente tambien tiene **capacidad limitada**: no acepta
+mas de `MAX_BATCH_ORDERS` entregas en cola. Sin ese tope, "aceptar todo" y
+"elegir bien" darian lo mismo.
+
+### `POST /simulation/benchmark`
+
+Corre un turno headless completo (agente autonomo vs novato, mismo stream)
+sin depender del reloj del mundo: simula sus propias horas de corrido, asi
+que 8 horas se resuelven en ~60-90 segundos en vez de 16 minutos reales.
+Persiste los dos runs con un `session_id` compartido, asi que el resultado se
+puede leer despues en `/stats/scoreboard` y en el dashboard.
+
+```bash
+curl -X POST localhost:8000/simulation/benchmark \
+  -H "Content-Type: application/json" \
+  -d '{"hours": 8, "start_hour": 11.0, "vehicle": "moto"}'
+```
 
 ## El reloj del mundo (siempre corriendo)
 
@@ -81,6 +168,33 @@ un tick lento se "come" minutos simulados. Por eso
 `routing.get_travel_time_matrix` hace un Dijkstra por origen en vez de N*N
 busquedas A* (11x11 bajo de decenas de segundos a ~3.7s) y el insight de
 batching tiene un enfriamiento de 20 minutos simulados.
+
+## Estado de los turnos: memoria o Redis
+
+`uvicorn --workers N` son N procesos independientes. Con el estado en un dict
+de modulo, el turno que arranca en el worker A no existe para el worker B, y
+como el frontend sondea cada 2s sin afinidad de proceso, la mitad de los
+polls contestaria 404.
+
+`api/routes/session_store.py` resuelve eso partiendo el estado en dos:
+
+- `SessionState` (`session_state.py`): todo lo serializable (ordenes
+  pendientes, entregas en curso, contadores, eventos, cierre de calle). Esto
+  es lo que viaja a Redis.
+- el runtime (grafo de OSMnx + agentes): NO se serializa, se rehidrata por
+  worker (`ShiftRuntime.hydrate`) apoyandose en el cache de proceso de
+  `load_graph()`. Un detalle facil de olvidar: el cierre de calle vive en las
+  aristas del grafo, asi que al rehidratar se vuelve a aplicar.
+
+Backends: `InMemorySessionStore` (default, cero configuracion) y
+`RedisSessionStore`, que se activa solo si hay `REDIS_URL`. Si `REDIS_URL`
+esta puesto pero Redis no responde, cae a memoria y lo avisa por log en vez
+de tumbar el arranque.
+
+El round-trip de serializacion es lo critico aqui y esta cubierto por
+`tests/test_session_store.py` (con `fakeredis`, incluyendo el caso de dos
+workers contra el mismo Redis). Lo que **no** se probo es el cliente de Redis
+contra un servidor real: no habia uno disponible en este entorno.
 
 ## Los dos agentes (inteligente vs novato)
 
@@ -191,38 +305,46 @@ instancia real de Tiger Cloud — `/simulation/start` -> `/state` -> `/decide`
   `trip_records` en crudo (sin el retraso del aggregate) porque es "el turno
   de ahora".
 
+## Reevaluacion de ofertas pendientes
+
+Las tarjetas que ya estan en pantalla se recalculan cuando cambia algo que
+les mueve el precio: entro una hora pico, el repartidor quedo en otra parte
+de la ciudad, o se cerro una calle. Antes se congelaban al generarse y podian
+mostrar un Score que ya no era cierto.
+
+Cada reevaluacion cuesta dos busquedas A* por orden, asi que tiene dos
+frenos: solo corre si cambio la huella de contexto
+(`_revaluation_context`: bloque de 15 min de hora + posicion libre + cierre
+activo) y no mas seguido que cada 5 minutos simulados. Cuando un Score se
+mueve de forma material o cambia de signo, se avisa en el log
+(`KFC got worse with the traffic: Score $48.45 → $46.91`): que una oferta se
+encarezca sin explicacion es peor que el Score viejo. Si una orden se vuelve
+inalcanzable, se retira de la lista.
+
 ## Pendiente
 
 Backend:
 
-- **Modo autonomo del agente.** Hoy el agente solo recomienda
-  (`should_accept`) y el conductor decide, asi que `/stats/scoreboard` compara
-  "decisiones del conductor" vs "aceptar todo". Para el criterio de
-  "cuanto gana el agente vs un baseline" haria falta un turno donde el agente
-  decida solo. Es una decision de producto: el frontend puso al humano en el
-  loop a proposito (ver comentario en `PendingOrdersPanel.tsx`).
-- **Estado en memoria, un solo worker.** `_sessions` en
-  `api/routes/simulation.py` es un dict del proceso: con `uvicorn --workers >1`
-  cada worker veria turnos distintos, y un reinicio pierde el turno en curso
-  (el frontend ya no puede re-suscribirse). Mover a Redis si se despliega.
+- **`decision/q_learning.py` sigue sin implementar** (reposicionamiento
+  predictivo: moverse a la zona donde van a aparecer los pedidos buenos).
+  Es el unico pendiente grande de backend que queda.
 - **El reloj del mundo vive en el proceso.** `world_clock` se ancla al
   arranque, asi que reiniciar el backend "regresa" el mundo a la hora real
-  actual. Si se quiere continuidad entre reinicios, hay que persistir el ancla.
-- **Las evaluaciones de las ordenes pendientes no se recalculan** cuando el
-  repartidor se mueve o cuando cambia el trafico: se congelan al momento de
-  generarse. Se dejo asi a proposito (un Score que baila en una tarjeta ya
-  visible confunde al conductor), pero si se quiere precision total hay que
-  recalcular y decidir como comunicar el cambio.
-- **`decision/q_learning.py` sigue sin implementar** (reposicionamiento
-  predictivo). Fuera de alcance por ahora.
+  actual. Con Redis se comparten los turnos pero no el ancla del reloj: si se
+  despliega con varios workers, cada uno tendria su propio ancla (arrancan en
+  momentos distintos). Habria que persistir el ancla junto al estado.
 - **Latencia del audit**: Gemini tardo entre 3s y 15s en las pruebas. La
   respuesta se cachea en `decision_audits`, asi que solo la primera vez por
   orden es lenta, pero conviene un spinner/timeout en la UI.
-- **El mix de ordenes es generoso**: con tarifas de $40-140 MXN, casi
-  cualquier orden deja Score positivo, asi que "aceptar todo" es una
-  estrategia decente y el agente tiene poco que discriminar. Vale la pena
-  calibrar `order_generator.py` para que existan ofertas claramente malas
-  (mucha distancia, poca paga).
+- **Redis no se probo contra un servidor real** (no habia uno en este
+  entorno). La logica de serializacion si esta cubierta con `fakeredis`,
+  incluido el caso de dos workers compartiendo estado.
+- **El repartidor no se reposiciona solo.** Se queda donde lo dejo su ultima
+  entrega; las ofertas se sesgan a la zona del turno, que es fija. Eso es
+  justo lo que resolveria el Q-Learning.
+- **`decision/batching.plan_batch` sigue siendo informativo**: calcula el
+  ahorro de hacer varias ordenes juntas y lo anuncia en el log, pero nadie
+  puede aceptar un lote porque no existe esa accion en la UI.
 
 Frontend (para el integrante que lleve esa parte — nada de esto se toco):
 
@@ -236,3 +358,11 @@ Frontend (para el integrante que lleve esa parte — nada de esto se toco):
   poll).
 - El cierre de calle viaja con el preset "Rush Hour" porque no se podia
   agregar un boton nuevo sin tocar el frontend.
+- **El modo autonomo no tiene entrada en la UI.** `/simulation/start` ya
+  acepta `autonomous: true` y `SimulationState` expone el campo `autonomous`,
+  pero `ControlPanel.tsx` no lo manda. Un switch de "el agente juega solo"
+  seria el demo mas fuerte del reto (dos agentes corriendo el mismo turno
+  lado a lado), y del lado del backend ya esta todo.
+- **`/simulation/benchmark` tampoco tiene entrada en la UI**; hoy se corre
+  por curl o desde `/docs`. Un boton de "medir turno completo" daria el
+  numero de agente-vs-baseline en pantalla.

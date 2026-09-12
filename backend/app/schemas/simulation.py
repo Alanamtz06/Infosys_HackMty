@@ -5,6 +5,11 @@ class SimulationStart(BaseModel):
     user_id: str | None = None
     vehicle: str = "moto"  # "moto" | "auto" — viene del vehicle_type elegido al loguearse
 
+    # True = el agente decide solo (no hay ordenes pendientes esperando al
+    # conductor y /simulation/decide contesta 409). Default False para que el
+    # frontend, que no manda este campo, siga con el humano en el loop.
+    autonomous: bool = False
+
 
 class GodModeRequest(BaseModel):
     run_id: str
@@ -68,6 +73,39 @@ class SimulationState(BaseModel):
     # ScoreboardModal.tsx necesita para `noviceEarnings`.
     novice_earnings: float
     session_id: str
+    autonomous: bool
+
+
+class BenchmarkRequest(BaseModel):
+    hours: float = 8.0  # horas simuladas de turno
+    start_hour: float | None = None  # None = arranca en la hora del mundo
+    vehicle: str = "moto"
+    user_id: str | None = None
+
+
+class AgentBenchmark(BaseModel):
+    net_earnings: float
+    accepted: int
+    rejected: int
+    missed_while_busy: int
+    minutes_worked: float
+    distance_km: float
+    earnings_per_hour: float
+
+
+class BenchmarkResult(BaseModel):
+    """Resultado de un turno headless: agente autonomo vs novato sobre el
+    mismo stream de ordenes."""
+
+    session_id: str
+    hours: float
+    start_hour: float
+    vehicle: str
+    orders_offered: int
+    inteligente: AgentBenchmark
+    novato: AgentBenchmark
+    advantage_mxn: float
+    advantage_pct: float
 
 
 class DecisionRequest(BaseModel):
