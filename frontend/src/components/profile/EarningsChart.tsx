@@ -16,9 +16,9 @@ export function EarningsChart({ data }: Props) {
   if (data.length === 0) {
     return (
       <div className="flex h-[280px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-dust bg-dust/10 text-charcoal/70">
-        <span className="text-sm">Todavía no hay viajes registrados en este periodo.</span>
+        <span className="text-sm">No trips recorded for this period yet.</span>
         <span className="text-xs text-charcoal/50">
-          El historial aparecerá aquí cuando el repartidor complete su primera entrega.
+          History will show up here once the courier completes their first delivery.
         </span>
       </div>
     );

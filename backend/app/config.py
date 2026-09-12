@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://user:password@localhost:5432/delivery_sim"
+    database_url: str = "postgresql://user:password@localhost:5432/lynx"
     gemini_api_key: str = ""
 
     city_center_lat: float = 25.6714

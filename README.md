@@ -1,9 +1,9 @@
-# Simulador Multiagente de Delivery — Reto Infosys (HackMTY)
+# Lynx — Reto Infosys (HackMTY)
 
-Simulador de un repartidor de plataforma en la Zona Metropolitana de Monterrey (ZMM)
-que maximiza sus ganancias netas durante un turno mediante decisiones rentables,
-usando un sistema multiagente sobre un grafo vial real (OpenStreetMap) con tráfico
-dinámico por horario.
+Simulador multiagente de un repartidor de plataforma en la Zona Metropolitana de
+Monterrey (ZMM) que maximiza sus ganancias netas durante un turno mediante
+decisiones rentables, usando un sistema multiagente sobre un grafo vial real
+(OpenStreetMap) con tráfico dinámico por horario.
 
 ## Estructura del repositorio
 

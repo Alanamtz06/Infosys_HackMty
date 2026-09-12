@@ -1,19 +1,20 @@
 import axios from "axios";
 
-import type { LiveDashboardResponse, User, VehicleType } from "../types";
+import type { GodModePreset, LiveDashboardResponse, SimulationState, User, VehicleType } from "../types";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:8000",
 });
 
-// TODO: reemplazar por llamadas reales a los endpoints del backend
-// (app/api/routes en el backend) conforme se implemente su logica de negocio.
 export const simulationApi = {
-  start: (payload: { real_duration_minutes: number; agent_type: string }) =>
-    api.post("/simulation/start", payload),
-  getState: () => api.get("/simulation/state"),
-  godMode: (preset: "manana" | "comida" | "salida_trabajo") =>
-    api.post("/simulation/god-mode", { preset }),
+  start: (payload: { user_id?: string; vehicle: VehicleType }) =>
+    api.post<SimulationState>("/simulation/start", payload),
+  getState: (runId: string) => api.get<SimulationState>("/simulation/state", { params: { run_id: runId } }),
+  decide: (payload: { run_id: string; order_id: string; accept: boolean }) =>
+    api.post<SimulationState>("/simulation/decide", payload),
+  end: (runId: string) => api.post<SimulationState>("/simulation/end", { run_id: runId }),
+  godMode: (runId: string, preset: GodModePreset | null) =>
+    api.post<SimulationState>("/simulation/god-mode", { run_id: runId, preset }),
 };
 
 export const ordersApi = {

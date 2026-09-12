@@ -18,25 +18,28 @@ export default function App() {
   }
 
   return (
-    <div className="relative min-h-screen bg-paper bg-[radial-gradient(circle_at_top_right,rgba(229,202,217,0.35),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(216,204,202,0.45),transparent_50%)]">
+    <div className="relative flex h-screen flex-col bg-paper bg-[radial-gradient(circle_at_top_right,rgba(229,202,217,0.35),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(216,204,202,0.45),transparent_50%)]">
       <div className="paper-grain" />
 
-      <div className="animate-fade-up absolute right-4 top-4 z-10 flex items-center gap-2">
+      {/* Header en flujo normal, no flotante: en la pagina de Simulacion,
+          ControlPanel tambien es una barra de ancho completo — si el nav
+          flotara encima con position:absolute, se encimarian. */}
+      <header className="animate-fade-up relative z-20 flex items-center justify-end gap-2 p-4">
         <nav className="flex gap-1 rounded-full border border-plum/15 bg-paper/90 p-1 shadow-[0_2px_10px_rgba(104,73,89,0.12)] backdrop-blur">
           <NavButton active={view === "simulation"} onClick={() => setView("simulation")}>
-            Simulación
+            Simulation
           </NavButton>
           <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")}>
             Dashboard
           </NavButton>
           <NavButton active={view === "profile"} onClick={() => setView("profile")}>
-            Perfil
+            Profile
           </NavButton>
         </nav>
 
         <button
           onClick={() => setUser(null)}
-          title={`Cerrar sesión (${user.username})`}
+          title={`Log out (${user.username})`}
           className="flex h-8 w-8 items-center justify-center rounded-full border border-dust bg-paper/90 text-charcoal shadow-[0_2px_8px_rgba(104,73,89,0.1)] backdrop-blur transition duration-150 ease-out hover:border-plum/30 hover:text-plum active:scale-95"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -45,13 +48,13 @@ export default function App() {
             <path d="M21 12H9" />
           </svg>
         </button>
-      </div>
+      </header>
 
-      <div key={view} className="animate-fade-in">
+      <main key={view} className="animate-fade-in min-h-0 flex-1">
         {view === "simulation" && <SimulationPage />}
         {view === "dashboard" && <DashboardPage />}
         {view === "profile" && <ProfilePage />}
-      </div>
+      </main>
     </div>
   );
 }

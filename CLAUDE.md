@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Simulador multiagente de un repartidor de plataforma en la Zona Metropolitana de
-Monterrey (ZMM) que maximiza ganancias netas durante un turno, usando un grafo
-vial real de OpenStreetMap con tráfico dinámico por horario. Two independent
-apps in one repo: `backend/` (FastAPI simulation engine + API) and `frontend/`
-(React dashboard). No shared package/build tooling between them — each has its
-own README, `.env`, and dependency file.
+**Lynx** — a multi-agent delivery-platform simulation set in the Monterrey
+metro area (ZMM), maximizing net earnings per shift using a real OpenStreetMap
+road graph with time-of-day traffic. Two independent apps in one repo:
+`backend/` (FastAPI simulation engine + API) and `frontend/` (React
+dashboard). No shared package/build tooling between them — each has its own
+README, `.env`, and dependency file. The product name appears as `app =
+FastAPI(title="Lynx")` in `backend/app/main.py` and as the `<title>`/login
+wordmark in the frontend — keep both in sync if it's ever renamed again.
 
 ## Commands
 

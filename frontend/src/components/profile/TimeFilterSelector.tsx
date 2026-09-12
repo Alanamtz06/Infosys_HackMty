@@ -1,10 +1,10 @@
 const PERIODS = [
-  { key: "dia", label: "Día" },
-  { key: "semana", label: "Semana" },
-  { key: "1_mes", label: "1 Mes" },
-  { key: "3_meses", label: "3 Meses" },
-  { key: "6_meses", label: "6 Meses" },
-  { key: "1_anio", label: "1 Año" },
+  { key: "dia", label: "Day" },
+  { key: "semana", label: "Week" },
+  { key: "1_mes", label: "1 Month" },
+  { key: "3_meses", label: "3 Months" },
+  { key: "6_meses", label: "6 Months" },
+  { key: "1_anio", label: "1 Year" },
 ];
 
 interface Props {

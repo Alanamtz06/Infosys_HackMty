@@ -9,13 +9,13 @@ import { TimeFilterSelector } from "./TimeFilterSelector";
 // TODO: reemplazar por datos reales de statsApi.getHistory(period) y quitar
 // este arreglo en cuanto el endpoint este disponible.
 const SAMPLE_DATA: EarningsPoint[] = [
-  { date: "Lun", netEarnings: 184.3, gasSaved: 2.1, timeSaved: 18 },
-  { date: "Mar", netEarnings: 221.75, gasSaved: 2.6, timeSaved: 24 },
-  { date: "Mié", netEarnings: 156.9, gasSaved: 1.8, timeSaved: 15 },
-  { date: "Jue", netEarnings: 268.4, gasSaved: 3.2, timeSaved: 29 },
-  { date: "Vie", netEarnings: 312.15, gasSaved: 3.9, timeSaved: 34 },
-  { date: "Sáb", netEarnings: 289.6, gasSaved: 3.4, timeSaved: 31 },
-  { date: "Dom", netEarnings: 198.25, gasSaved: 2.3, timeSaved: 20 },
+  { date: "Mon", netEarnings: 184.3, gasSaved: 2.1, timeSaved: 18 },
+  { date: "Tue", netEarnings: 221.75, gasSaved: 2.6, timeSaved: 24 },
+  { date: "Wed", netEarnings: 156.9, gasSaved: 1.8, timeSaved: 15 },
+  { date: "Thu", netEarnings: 268.4, gasSaved: 3.2, timeSaved: 29 },
+  { date: "Fri", netEarnings: 312.15, gasSaved: 3.9, timeSaved: 34 },
+  { date: "Sat", netEarnings: 289.6, gasSaved: 3.4, timeSaved: 31 },
+  { date: "Sun", netEarnings: 198.25, gasSaved: 2.3, timeSaved: 20 },
 ];
 
 const totals = SAMPLE_DATA.reduce(
@@ -28,9 +28,9 @@ const totals = SAMPLE_DATA.reduce(
 );
 
 const STATS = [
-  { label: "Ganancias netas", value: `$${totals.netEarnings.toFixed(2)}`, accent: "plum" as const },
-  { label: "Gasolina ahorrada", value: `${totals.gasSaved.toFixed(1)} L`, accent: "blush" as const },
-  { label: "Tiempo ahorrado", value: `${totals.timeSaved} min`, accent: "charcoal" as const },
+  { label: "Net earnings", value: `$${totals.netEarnings.toFixed(2)}`, accent: "plum" as const },
+  { label: "Fuel saved", value: `${totals.gasSaved.toFixed(1)} L`, accent: "blush" as const },
+  { label: "Time saved", value: `${totals.timeSaved} min`, accent: "charcoal" as const },
 ];
 
 export function ProfileStats() {
@@ -42,18 +42,13 @@ export function ProfileStats() {
     <div className="space-y-5 p-6 text-ink">
       <div className="animate-fade-up flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-plum text-paper shadow-[0_2px_8px_rgba(104,73,89,0.35)]">
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-              <circle cx="12" cy="8.4" r="3.3" />
-              <path d="M4.6 20.2c0-4.5 3.3-7.6 7.4-7.6s7.4 3.1 7.4 7.6a1 1 0 0 1-1 1H5.6a1 1 0 0 1-1-1Z" />
-            </svg>
-          </span>
+          <img src="/logo-mark.png" alt="Lynx" className="h-8 w-8" />
           <div>
             <span className="inline-block rounded-full bg-blush/40 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.15em] text-plum">
-              Resumen
+              Overview
             </span>
             <h2 className="text-xl font-semibold tracking-tight">
-              {user ? `Hola, ${user.username}` : "Perfil del repartidor"}
+              {user ? `Hi, ${user.username}` : "Courier profile"}
             </h2>
           </div>
         </div>
@@ -100,7 +95,7 @@ export function ProfileStats() {
         style={{ animationDelay: "240ms" }}
       >
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-medium text-charcoal">Ganancias netas · esta semana</span>
+          <span className="text-sm font-medium text-charcoal">Net earnings · this week</span>
           <span className="h-2 w-2 rounded-full bg-plum" />
         </div>
         <EarningsChart data={SAMPLE_DATA} />

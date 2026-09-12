@@ -24,11 +24,11 @@ def _to_user_out(user: User) -> UserOut:
 @router.post("/register", response_model=UserOut)
 def register(payload: UserRegister, session: Session = Depends(get_session)):
     if payload.vehicle_type not in VEHICLE_TYPES:
-        raise HTTPException(400, f"vehicle_type invalido, opciones: {sorted(VEHICLE_TYPES)}")
+        raise HTTPException(400, f"Invalid vehicle_type, options: {sorted(VEHICLE_TYPES)}")
 
     existing = session.scalar(select(User).where(User.username == payload.username))
     if existing is not None:
-        raise HTTPException(409, "Ese nombre de usuario ya esta en uso")
+        raise HTTPException(409, "That username is already taken")
 
     user = User(
         username=payload.username,
@@ -45,5 +45,5 @@ def register(payload: UserRegister, session: Session = Depends(get_session)):
 def login(payload: UserLogin, session: Session = Depends(get_session)):
     user = session.scalar(select(User).where(User.username == payload.username))
     if user is None or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(401, "Usuario o contraseña incorrectos")
+        raise HTTPException(401, "Incorrect username or password")
     return _to_user_out(user)

@@ -12,4 +12,4 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 @router.post("/decision")
 def audit_decision(payload: AuditRequest):
-    return {"order_id": payload.order_id, "explanation": "TODO: conectar con gemini_service.audit_decision"}
+    return {"order_id": payload.order_id, "explanation": "TODO: wire up gemini_service.audit_decision"}

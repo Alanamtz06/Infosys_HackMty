@@ -14,7 +14,7 @@ router = APIRouter(prefix="/stats", tags=["stats"])
 @router.get("/history/{period}")
 def get_history(period: str, session: Session = Depends(get_session)):
     if period not in PERIOD_TO_TIMEDELTA:
-        return {"error": f"periodo invalido, opciones: {list(PERIOD_TO_TIMEDELTA)}"}
+        return {"error": f"Invalid period, options: {list(PERIOD_TO_TIMEDELTA)}"}
     trips = get_trips_since(session, period)
     return {"period": period, "count": len(trips)}
 

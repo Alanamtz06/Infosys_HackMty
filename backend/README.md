@@ -1,4 +1,4 @@
-# Backend — Delivery Sim ZMM
+# Backend — Lynx
 
 Python + FastAPI. Motor de simulacion multiagente sobre un grafo de OSMnx de la
 Zona Metropolitana de Monterrey.

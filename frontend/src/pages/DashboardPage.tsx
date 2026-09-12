@@ -33,13 +33,13 @@ export function DashboardPage() {
   }, []);
 
   return (
-    <div className="min-h-screen space-y-5 p-6 text-ink">
+    <div className="min-h-full space-y-5 p-6 text-ink">
       <div className="animate-fade-up flex items-center gap-3">
         <span className="relative flex h-2.5 w-2.5">
           <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-plum" />
           <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-plum" />
         </span>
-        <h2 className="text-xl font-semibold tracking-tight">Dashboard en vivo</h2>
+        <h2 className="text-xl font-semibold tracking-tight">Live Dashboard</h2>
         <span className="rounded-full bg-dust/40 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.15em] text-charcoal/70">
           Tiger Data
         </span>
@@ -47,7 +47,7 @@ export function DashboardPage() {
 
       {error && (
         <div className="animate-fade-up rounded-lg border border-dust bg-dust/20 px-4 py-3 text-sm text-charcoal/70">
-          No se pudo conectar con el backend. Reintentando cada {POLL_INTERVAL_MS / 1000}s…
+          Could not connect to the backend. Retrying every {POLL_INTERVAL_MS / 1000}s…
         </div>
       )}
 
@@ -56,6 +56,8 @@ export function DashboardPage() {
     </div>
   );
 }
+
+const AGENT_LABEL: Record<string, string> = { inteligente: "Smart", novato: "Novice" };
 
 function SummaryGrid({ data }: { data: LiveDashboardResponse | null }) {
   const rows = data?.summary ?? [];
@@ -66,9 +68,9 @@ function SummaryGrid({ data }: { data: LiveDashboardResponse | null }) {
         className="animate-fade-up flex h-28 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-dust bg-dust/10 text-charcoal/70"
         style={{ animationDelay: "80ms" }}
       >
-        <span className="text-sm">Sin actividad en los últimos 5 minutos.</span>
+        <span className="text-sm">No activity in the last 5 minutes.</span>
         <span className="text-xs text-charcoal/50">
-          Corre una simulación para ver el Score calculado en vivo por Tiger Data.
+          Run a simulation to see the Score calculated live by Tiger Data.
         </span>
       </div>
     );
@@ -86,17 +88,17 @@ function SummaryGrid({ data }: { data: LiveDashboardResponse | null }) {
           <div className="p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-sm font-medium capitalize text-ink">
-                {row.agent_type} · {row.vehicle}
+                {AGENT_LABEL[row.agent_type] ?? row.agent_type} · {row.vehicle}
               </span>
               <span className="rounded-full bg-blush/30 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-plum">
                 5 min
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <Stat label="Viajes" value={row.trips_last_5min.toString()} />
-              <Stat label="Aceptados" value={row.accepted_last_5min.toString()} />
-              <Stat label="Score neto" value={`$${row.net_score_last_5min.toFixed(2)}`} accent />
-              <Stat label="Score prom." value={`$${row.avg_score_last_5min.toFixed(2)}`} />
+              <Stat label="Trips" value={row.trips_last_5min.toString()} />
+              <Stat label="Accepted" value={row.accepted_last_5min.toString()} />
+              <Stat label="Net score" value={`$${row.net_score_last_5min.toFixed(2)}`} accent />
+              <Stat label="Avg. score" value={`$${row.avg_score_last_5min.toFixed(2)}`} />
             </div>
           </div>
         </div>
@@ -120,12 +122,12 @@ function RecentTrips({ data }: { data: LiveDashboardResponse | null }) {
   return (
     <div className="animate-fade-up rounded-xl border border-dust bg-white" style={{ animationDelay: "160ms" }}>
       <div className="border-b border-dust px-4 py-3 text-sm font-medium text-charcoal">
-        Últimos viajes (calculados por <code className="text-plum">calculate_score()</code> en Postgres)
+        Recent trips (calculated by <code className="text-plum">calculate_score()</code> in Postgres)
       </div>
 
       {trips.length === 0 ? (
         <div className="flex h-24 items-center justify-center text-sm text-charcoal/50">
-          Todavía no hay viajes registrados.
+          No trips recorded yet.
         </div>
       ) : (
         <div className="divide-y divide-dust overflow-x-auto">
@@ -136,10 +138,12 @@ function RecentTrips({ data }: { data: LiveDashboardResponse | null }) {
             >
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${trip.accepted ? "bg-plum" : "bg-charcoal/30"}`}
-                title={trip.accepted ? "Aceptado" : "Rechazado"}
+                title={trip.accepted ? "Accepted" : "Rejected"}
               />
               <span className="w-16 shrink-0 capitalize text-charcoal/70">{trip.vehicle}</span>
-              <span className="w-24 shrink-0 capitalize text-charcoal/70">{trip.agent_type}</span>
+              <span className="w-24 shrink-0 capitalize text-charcoal/70">
+                {AGENT_LABEL[trip.agent_type] ?? trip.agent_type}
+              </span>
               <span className="flex-1 truncate text-charcoal/60">{trip.username ?? "—"}</span>
               <span className="w-20 shrink-0 tabular-nums text-charcoal/70">{trip.distance_km.toFixed(1)} km</span>
               <span className="w-24 shrink-0 tabular-nums text-charcoal/70">
