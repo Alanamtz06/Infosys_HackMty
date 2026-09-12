@@ -1,0 +1,13 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+osmnx==1.9.4
+networkx==3.3
+pydantic==2.9.2
+pydantic-settings==2.5.2
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+websockets==13.1
+numpy==1.26.4
+pandas==2.2.3
+google-generativeai==0.8.3
