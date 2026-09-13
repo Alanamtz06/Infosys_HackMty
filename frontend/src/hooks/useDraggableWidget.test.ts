@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetAllWidgets, toggleWidget, useDraggableWidget } from "./useDraggableWidget";
 
 function storageKey(id: string): string {
-  return `lynx-widget:${id}`;
+  return `nova-widget:${id}`;
 }
 
 /** El hook solo llama `setPointerCapture`/`releasePointerCapture` sobre

@@ -77,7 +77,7 @@ export function OrderDetailCard({ order, route, loading, error, previewEnabled, 
         <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden="true">
           <path d="M15 6 9 12l6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {t("orderDetail.eyebrow")}
+        {t("orderDetail.backToList")}
       </button>
 
       <div className="mt-1.5 flex items-center gap-2">
@@ -172,7 +172,11 @@ export function OrderDetailCard({ order, route, loading, error, previewEnabled, 
                 className="animate-fade-up flex items-baseline gap-2"
                 style={{ animationDelay: `${i * 70}ms` }}
               >
-                <span className="mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-dust/60 text-[9px] font-semibold tabular-nums text-plum">
+                <span className={`mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold tabular-nums ${
+                  stop.kind === 'courier' ? 'bg-paper text-plum ring-1 ring-plum/35' : 
+                  stop.kind === 'pickup' ? 'bg-blush text-plum ring-1 ring-plum/25' : 
+                  'bg-plum text-paper'
+                }`}>
                   {i}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-ink">

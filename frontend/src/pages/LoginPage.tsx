@@ -71,7 +71,7 @@ export function LoginPage() {
         <section className="max-w-xl">
           <div className="animate-fade-up flex items-center gap-3">
             <img src="/logo-mark.png" alt="" className="h-9 w-9" />
-            <span className="text-[15px] font-semibold tracking-tight text-ink">Lynx</span>
+            <span className="text-[15px] font-semibold tracking-tight text-ink">Nova</span>
             <span className="ml-1 rounded-full bg-paper/80 px-3 py-1 text-[10px] font-medium uppercase tracking-[0.2em] text-plum ring-1 ring-plum/15">
               {t("login.eyebrow")}
             </span>

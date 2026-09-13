@@ -12,7 +12,7 @@ export interface WidgetLayout {
 const DEFAULT_LAYOUT: WidgetLayout = { dx: 0, dy: 0, open: true };
 
 function storageKey(id: string): string {
-  return `lynx-widget:${id}`;
+  return `nova-widget:${id}`;
 }
 
 function readLayout(id: string): WidgetLayout {
@@ -46,8 +46,8 @@ function writeLayout(id: string, layout: WidgetLayout): void {
 // individuales que viven en componentes distintos se enteren entre si sin
 // pasar por props ni por el store global — es puramente posicion de
 // ventana, no estado de la aplicacion.
-const RESET_EVENT = "lynx-widget-reset";
-const TOGGLE_EVENT = "lynx-widget-toggle";
+const RESET_EVENT = "nova-widget-reset";
+const TOGGLE_EVENT = "nova-widget-toggle";
 
 export function resetAllWidgets(): void {
   window.dispatchEvent(new CustomEvent(RESET_EVENT));

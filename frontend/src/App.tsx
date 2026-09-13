@@ -53,7 +53,7 @@ export default function App() {
       <header className="animate-fade-up relative z-header flex items-center justify-between gap-4 p-4">
         <div className="flex items-center gap-3">
           <img src="/logo-mark.png" alt="" className="h-7 w-7" />
-          <span className="text-sm font-semibold tracking-tight text-ink">Lynx</span>
+          <span className="text-sm font-semibold tracking-tight text-ink">Nova</span>
           <VirtualClock virtualHour={virtualHour} />
           {isActive && (
             <span className="animate-fade-in rounded-full bg-blush/40 px-3 py-1 text-sm font-semibold tabular-nums tracking-[-0.01em] text-plum ring-1 ring-plum/15">

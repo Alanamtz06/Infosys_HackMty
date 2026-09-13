@@ -47,7 +47,7 @@ export const useAppStore = create<AppState>()(
       setLanguage: (language) => set({ language }),
     }),
     {
-      name: "lynx-session",
+      name: "nova-session",
       // Solo la sesion del usuario sobrevive un refresh; un turno activo no
       // se recupera tras recargar (el backend lo mantiene en memoria y no
       // hay forma de re-suscribirse a esa sesion desde cero todavia).
