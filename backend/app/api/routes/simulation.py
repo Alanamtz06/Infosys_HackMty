@@ -1,5 +1,5 @@
 """Endpoints de control de la simulacion: arrancar/terminar un turno,
-generar y decidir ordenes en vivo, Modo Dios, y el log de eventos.
+generar y decidir ordenes en vivo, y el log de eventos.
 
 El tiempo NO arranca con el turno: `engine.virtual_clock.world_clock` es un
 reloj global que corre desde que prende el proceso, acelerado
@@ -8,12 +8,13 @@ hora que el mundo ya traia; termina cuando el usuario llama a
 /simulation/end. Todo lo que se registra en el log en vivo lleva la hora
 SIMULADA, no la hora real del servidor.
 
-Dos modos de decision:
-  - manual (default): el agente calcula el Score y una recomendacion
-    (decision.policy) y el conductor decide via /simulation/decide. Es lo que
-    usa el frontend hoy (ver PendingOrdersPanel.tsx).
-  - autonomo (`autonomous=true` en /simulation/start): el agente decide solo,
-    sin intervencion. Es el modo que hace comparable "agente vs baseline".
+El agente calcula el Score y una recomendacion (decision.policy) para cada
+oferta, pero SIEMPRE decide el conductor via /simulation/decide — no existe
+un modo donde el agente acepte/rechace por su cuenta durante un turno en
+vivo. Es deliberado: el conductor real decide, el agente solo aconseja (ver
+OrdersWidget.tsx en el frontend). La UNICA comparacion automatizada
+agente-vs-agente vive en /simulation/benchmark, un turno headless aparte que
+no toca ningun turno en curso ni sus ordenes.
 
 En paralelo corre siempre un agente NOVATO invisible que acepta todo lo que
 le cabe, sobre el mismo stream de ordenes: es la linea base del Marcador
@@ -46,22 +47,25 @@ from app.decision.scoring import OrderEvaluation, VehicleType
 from app.engine.benchmark import run_benchmark
 from app.engine.graph_loader import apply_traffic, load_graph
 from app.engine.pois import load_restaurants
+from app.engine.zones import nearest_zone
 from app.engine.routing import (
-    apply_road_closure,
-    clear_road_closure,
+    downsample_coordinates,
     position_along_route,
+    route_coordinates,
     route_total_time,
-    simulate_random_closure,
     try_shortest_route,
 )
-from app.engine.traffic_rules import GOD_MODE_PRESETS
 from app.engine.virtual_clock import world_clock
 from app.schemas.simulation import (
+    ActiveRouteOut,
     BenchmarkRequest,
     BenchmarkResult,
     DecisionRequest,
-    GodModeRequest,
+    NoviceOutcomeOut,
     PendingOrderOut,
+    RouteLegOut,
+    RoutePreviewOut,
+    RouteStopOut,
     RunIdRequest,
     SimEventOut,
     SimulationStart,
@@ -72,12 +76,6 @@ router = APIRouter(prefix="/simulation", tags=["simulation"])
 
 MAX_PENDING_ORDERS = 5
 MAX_EVENTS = 200
-
-# El God Mode "salida_trabajo" (hora pico de la tarde) es, ademas de trafico
-# pesado, el momento que usamos para la demo de "cierre de calle a mitad de
-# turno" que pide el reto: no hay boton nuevo en la UI para esto (no se toco
-# el frontend), se aprovecha el preset que ya existe.
-ROAD_CLOSURE_PRESET = "salida_trabajo"
 
 # Cada cuantos minutos simulados, como maximo, se recalcula el insight de
 # batching (ver _log_batching_insight) y se reevaluan las ordenes pendientes
@@ -95,9 +93,7 @@ class ShiftRuntime:
     """Estado del turno + lo que no se serializa, rehidratado por worker.
 
     El grafo viene del cache de proceso de `load_graph()`, asi que rehidratar
-    es barato. Lo que si hay que rehacer a mano es el cierre de calle: vive
-    en las aristas del grafo, y el grafo de ESTE worker puede no tenerlo
-    aplicado todavia.
+    es barato.
     """
 
     state: SessionState
@@ -116,12 +112,6 @@ class ShiftRuntime:
         delivery_agent.position = state.courier_position
         novice_agent = NoviceAgent(graph, vehicle=vehicle)
         novice_agent.position = state.novice_position or state.courier_position
-
-        if state.active_closure is not None:
-            try:
-                apply_road_closure(graph, state.active_closure["u"], state.active_closure["v"])
-            except ValueError:
-                state.active_closure = None
 
         return cls(
             state=state,
@@ -160,7 +150,7 @@ def _log(rt: ShiftRuntime, event_type: str, message: str) -> None:
 
 
 def _current_hour(state: SessionState) -> float:
-    return state.hour_override if state.hour_override is not None else world_clock.virtual_hour()
+    return world_clock.virtual_hour()
 
 
 def _courier_live_position(rt: ShiftRuntime) -> tuple[float, float] | None:
@@ -252,14 +242,12 @@ def _revaluation_context(rt: ShiftRuntime) -> str:
 
     Si esta huella no cambio, reevaluar daria exactamente el mismo numero y
     solo gastaria ruteo. Entran: el bloque de hora (el trafico se recalcula
-    por hora del dia), donde va a quedar libre el repartidor, y si hay un
-    cierre de calle activo.
+    por hora del dia) y donde va a quedar libre el repartidor.
     """
     hour_bucket = round(_current_hour(rt.state) * 4)  # bloques de 15 min
     position = _next_free_position(rt)
     position_key = f"{position[0]:.3f},{position[1]:.3f}" if position else "none"
-    closure = rt.state.active_closure["u"] if rt.state.active_closure else "open"
-    return f"{hour_bucket}|{position_key}|{closure}"
+    return f"{hour_bucket}|{position_key}"
 
 
 def _revalue_pending_orders(rt: ShiftRuntime) -> None:
@@ -341,8 +329,8 @@ def _log_score_change(rt: ShiftRuntime, order: dict, previous: float, current: f
 
 
 def _generate_and_evaluate_order(rt: ShiftRuntime, db: Session, virtual_hour: float) -> bool:
-    """Crea una orden, la evalua para ambos agentes y la deja pendiente (o la
-    decide sola si el turno es autonomo).
+    """Crea una orden, la evalua para ambos agentes y la deja pendiente,
+    esperando la decision del conductor.
 
     Devuelve False si la orden resulto inservible (pickup o dropoff
     inalcanzables, tipicamente por un cierre de calle): en ese caso no se
@@ -382,7 +370,7 @@ def _generate_and_evaluate_order(rt: ShiftRuntime, db: Session, virtual_hour: fl
     )
     db.commit()
 
-    _record_novice_decision(rt, db, order, virtual_hour)
+    _record_novice_decision(rt, db, order, virtual_hour, pending)
 
     _log(
         rt,
@@ -390,9 +378,6 @@ def _generate_and_evaluate_order(rt: ShiftRuntime, db: Session, virtual_hour: fl
         f"New order from {order.get('pickup_name') or 'a restaurant'} — "
         f"${order['fare']:.2f} MXN, estimated Score ${evaluation.score:.2f}",
     )
-
-    if state.autonomous:
-        _decide_autonomously(rt, db, order["id"], pending)
 
     return True
 
@@ -408,23 +393,12 @@ def _agent_recommendation(rt: ShiftRuntime, evaluation: OrderEvaluation) -> bool
     return policy.should_accept(evaluation, _policy_state(rt))
 
 
-def _decide_autonomously(rt: ShiftRuntime, db: Session, order_id: str, pending: PendingOrder) -> None:
-    """El agente decide sin el humano (turno autonomo).
-
-    Tiene capacidad limitada: si ya trae `max_batch_orders` entregas en cola,
-    rechaza aunque la oferta sea buena. Sin ese tope "aceptar todo" y "elegir
-    bien" darian lo mismo, y la comparacion contra el novato no mediria nada.
-    """
-    at_capacity = len(rt.state.active_deliveries) >= settings.max_batch_orders
-    accept = (not at_capacity) and _agent_recommendation(rt, pending.evaluation)
-    _settle_order(rt, db, order_id, accept=accept, reason="capacity" if at_capacity else "policy")
-
-
 def _record_novice_decision(
     rt: ShiftRuntime,
     db: Session,
     order: dict,
     virtual_hour: float,
+    pending: PendingOrder,
 ) -> None:
     """El agente novato decide la misma orden al instante: la acepta siempre
     que este libre.
@@ -435,11 +409,14 @@ def _record_novice_decision(
 
     Escribe su propio TripRecord bajo `novice_run_id` (mismo `session_id` que
     el turno inteligente), que es lo que alimenta las tarjetas "Novice" de
-    /stats/live y la comparacion de /stats/scoreboard.
+    /stats/live y la comparacion de /stats/scoreboard. Ademas deja el
+    veredicto en `pending.novice_outcome`, para que el panel de ofertas lo
+    muestre al lado del veredicto del inteligente sin volver a calcularlo.
     """
     state = rt.state
     now_s = world_clock.sim_elapsed_seconds()
     if now_s < state.novice_busy_until_sim_seconds:
+        pending.novice_outcome = {"outcome": "busy"}
         return
 
     evaluation = rt.novice_agent.evaluate_order(
@@ -448,12 +425,21 @@ def _record_novice_decision(
         order["fare"],
     )
     if evaluation is None:
+        pending.novice_outcome = {"outcome": "unreachable"}
         return
 
     rt.novice_agent.commit((order["dropoff_lat"], order["dropoff_lon"]))
     state.novice_position = rt.novice_agent.position
     state.novice_busy_until_sim_seconds = now_s + evaluation.time_minutes * 60
     state.novice_earnings += evaluation.score
+
+    pending.novice_outcome = {
+        "outcome": "accepted",
+        "score": evaluation.score,
+        "fare": evaluation.fare,
+        "distance_km": evaluation.distance_km,
+        "time_minutes": evaluation.time_minutes,
+    }
 
     db.add(
         TripRecord(
@@ -475,10 +461,11 @@ def _record_novice_decision(
     db.commit()
 
 
-def _settle_order(rt: ShiftRuntime, db: Session, order_id: str, accept: bool, reason: str = "driver") -> None:
+def _settle_order(rt: ShiftRuntime, db: Session, order_id: str, accept: bool) -> None:
     """Cierra una orden pendiente: persiste la decision, cobra y arranca la
-    entrega. Unico camino por el que pasan tanto el conductor como el modo
-    autonomo, para que no se dupliquen las reglas del dinero."""
+    entrega. Unico camino por el que se resuelve una oferta — siempre a partir
+    de una decision explicita del conductor via /simulation/decide, para que
+    no se dupliquen las reglas del dinero."""
     state = rt.state
     pending = state.pending_orders.pop(order_id, None)
     if pending is None:
@@ -517,12 +504,6 @@ def _settle_order(rt: ShiftRuntime, db: Session, order_id: str, accept: bool, re
     rationale = policy.explain(evaluation, _policy_state(rt))
     if accept:
         _log(rt, "order_accepted", f"Accepted {pickup_name} — net ${evaluation.score:.2f} MXN · {rationale}")
-    elif reason == "capacity":
-        _log(
-            rt,
-            "order_rejected",
-            f"Skipped {pickup_name} — already carrying {settings.max_batch_orders} deliveries.",
-        )
     else:
         _log(rt, "order_rejected", f"Rejected {pickup_name} — {rationale}")
 
@@ -550,7 +531,16 @@ def _start_delivery(rt: ShiftRuntime, order: dict) -> None:
     # repartidor, asi que cuenta para cuando se libera.
     total_seconds = route_total_time(rt.graph, route) + settings.service_time_minutes * 60
     rt.state.active_deliveries.append(
-        ActiveDelivery(order=order, route=route, total_seconds=total_seconds)
+        ActiveDelivery(
+            order=order,
+            route=route,
+            total_seconds=total_seconds,
+            # Indice sobre los NODOS, no sobre las coordenadas dibujadas: la
+            # geometria se recalcula (y se adelgaza) en cada respuesta, asi
+            # que un indice sobre ella quedaria desfasado.
+            pickup_index=len(to_pickup[0]) - 1,
+            to_pickup_seconds=to_pickup[1],
+        )
     )
 
 
@@ -600,6 +590,124 @@ def _any_pending_pickup(rt: ShiftRuntime) -> tuple[float, float]:
 # --------------------------------------------------------------------------
 
 
+def _split_route_geometry(
+    graph: nx.MultiDiGraph, route: list[int], pickup_index: int, max_points: int = 400
+) -> tuple[list[list[float]], int]:
+    """La ruta como coordenadas `[lon, lat]` + el indice donde cae el pickup.
+
+    Los dos tramos (ida al restaurante / entrega) se adelgazan por separado a
+    proposito: si se adelgazara la polilinea completa de una, el punto del
+    pickup podria desaparecer y el indice dejaria de apuntar a donde
+    realmente esta la parada.
+    """
+    if not route:
+        return [], 0
+
+    idx = min(max(pickup_index, 0), len(route) - 1)
+    budget = max(max_points // 2, 2)
+    leg_a = downsample_coordinates(route_coordinates(graph, route[: idx + 1]), budget)
+    leg_b = downsample_coordinates(route_coordinates(graph, route[idx:]), budget)
+
+    if leg_a and leg_b and leg_a[-1] == leg_b[0]:
+        leg_b = leg_b[1:]
+
+    coords = [[lon, lat] for lon, lat in leg_a + leg_b]
+    return coords, max(len(leg_a) - 1, 0)
+
+
+def _stops_for(
+    order: dict,
+    origin: tuple[float, float],
+    to_pickup_minutes: float,
+    total_minutes: float,
+) -> list[RouteStopOut]:
+    """Las tres paradas de una entrega, en el orden en que se visitan."""
+    return [
+        RouteStopOut(
+            kind="courier",
+            label="You are here",
+            lat=origin[0],
+            lon=origin[1],
+            eta_minutes=0.0,
+        ),
+        RouteStopOut(
+            kind="pickup",
+            label=order.get("pickup_name") or "Pick up the order",
+            lat=order["pickup_lat"],
+            lon=order["pickup_lon"],
+            eta_minutes=round(to_pickup_minutes, 1),
+        ),
+        RouteStopOut(
+            kind="dropoff",
+            label="Drop off to the customer",
+            lat=order["dropoff_lat"],
+            lon=order["dropoff_lon"],
+            eta_minutes=round(total_minutes, 1),
+        ),
+    ]
+
+
+def _to_active_routes(rt: ShiftRuntime) -> list[ActiveRouteOut]:
+    """Las entregas en curso con su geometria y el avance real encima de ella.
+
+    Es lo que mueve el vehiculo en el mapa: `progress` va sobre el TIEMPO
+    total (incluye el tiempo de servicio), asi que la barra de avance y el
+    marcador cuentan la misma historia que el reloj del mundo.
+    """
+    now_s = world_clock.sim_elapsed_seconds()
+    routes: list[ActiveRouteOut] = []
+
+    for i, delivery in enumerate(rt.state.active_deliveries):
+        # La geometria de una entrega no cambia entre aceptarla y
+        # completarla: se calcula UNA vez (primer poll que la ve) y se
+        # reusa en los siguientes, en vez de recorrer y adelgazar la ruta
+        # entera cada 2s durante los minutos que dura la entrega.
+        if delivery._geometry_cache is None:
+            delivery._geometry_cache = _split_route_geometry(rt.graph, delivery.route, delivery.pickup_index)
+        coords, pickup_idx = delivery._geometry_cache
+        if not coords:
+            continue
+
+        # Una entrega encolada todavia no arranca: se dibuja completa, con el
+        # vehiculo parado en su punto de salida.
+        elapsed = 0.0
+        if delivery.started_sim_seconds is not None:
+            elapsed = max(now_s - delivery.started_sim_seconds, 0.0)
+
+        try:
+            lat, lon = position_along_route(rt.graph, delivery.route, elapsed)
+        except (ValueError, KeyError):
+            lon, lat = coords[0]
+
+        total = delivery.total_seconds
+        progress = min(elapsed / total, 1.0) if total > 0 else 1.0
+        origin = (coords[0][1], coords[0][0])
+
+        routes.append(
+            ActiveRouteOut(
+                order_id=delivery.order["id"],
+                pickup_name=delivery.order.get("pickup_name"),
+                coordinates=coords,
+                pickup_index=pickup_idx,
+                stops=_stops_for(
+                    delivery.order,
+                    origin,
+                    delivery.to_pickup_seconds / 60,
+                    total / 60,
+                ),
+                progress=round(progress, 4),
+                phase="to_pickup" if elapsed < delivery.to_pickup_seconds else "to_dropoff",
+                courier_lat=lat,
+                courier_lon=lon,
+                eta_minutes=round(max(total - elapsed, 0.0) / 60, 1),
+                fare=delivery.order["fare"],
+                is_current=i == 0,
+            )
+        )
+
+    return routes
+
+
 def _to_pending_out(rt: ShiftRuntime, order_id: str, pending: PendingOrder) -> PendingOrderOut:
     order = pending.order
     evaluation = pending.evaluation
@@ -609,9 +717,17 @@ def _to_pending_out(rt: ShiftRuntime, order_id: str, pending: PendingOrder) -> P
     # del corte estatico Score > 0, usa el umbral dinamico de
     # decision.policy, que se vuelve mas permisivo si el repartidor va
     # atrasado en su ritmo de pedidos aceptados.
+    # `novice_outcome` deberia estar siempre presente (se calcula sincronico
+    # junto con la orden); el fallback "busy" solo cubre un estado
+    # serializado antes de este campo (Redis entre despliegues).
+    novice_outcome = pending.novice_outcome or {"outcome": "busy"}
+
     return PendingOrderOut(
         order_id=order_id,
         pickup_name=order.get("pickup_name"),
+        # Fallback calculado (no solo el `.get`) por si la orden se genero
+        # antes de que este campo existiera en un turno ya en curso.
+        zone=order.get("zone") or nearest_zone(order["pickup_lat"], order["pickup_lon"]),
         pickup_lat=order["pickup_lat"],
         pickup_lon=order["pickup_lon"],
         dropoff_lat=order["dropoff_lat"],
@@ -623,6 +739,7 @@ def _to_pending_out(rt: ShiftRuntime, order_id: str, pending: PendingOrder) -> P
         time_cost=evaluation.time_minutes * settings.time_cost_per_minute,
         score=evaluation.score,
         should_accept=_agent_recommendation(rt, evaluation),
+        novice=NoviceOutcomeOut(**novice_outcome),
     )
 
 
@@ -636,7 +753,6 @@ def _to_state(rt: ShiftRuntime) -> SimulationState:
         virtual_minute=world_clock.virtual_minute(),
         is_finished=state.finished,
         net_earnings=round(state.net_earnings, 2),
-        god_mode_preset=state.god_mode_preset,
         pending_orders=[_to_pending_out(rt, oid, p) for oid, p in state.pending_orders.items()],
         events=[SimEventOut(**e) for e in state.events],
         # Campos aditivos: el frontend actual los ignora sin romperse
@@ -647,10 +763,10 @@ def _to_state(rt: ShiftRuntime) -> SimulationState:
         courier_lon=position[1] if position else None,
         active_deliveries=len(state.active_deliveries),
         deliveries_completed=state.deliveries_completed,
+        active_routes=_to_active_routes(rt),
         orders_accepted=state.orders_accepted,
         novice_earnings=round(state.novice_earnings, 2),
         session_id=state.session_id,
-        autonomous=state.autonomous,
     )
 
 
@@ -681,19 +797,17 @@ def start_simulation(payload: SimulationStart, db: Session = Depends(get_session
         vehicle=payload.vehicle,
         started_sim_seconds=now_s,
         last_tick_sim_seconds=now_s,
-        autonomous=payload.autonomous,
         courier_position=start_position,
         novice_position=start_position,
         zone_center=start_position,
     )
     rt = ShiftRuntime.hydrate(state)
 
-    mode = "autonomously" if payload.autonomous else "scoring orders for the driver"
     _log(
         rt,
         "shift_started",
         f"Shift started at {world_clock.now():%H:%M} simulated time — the clock runs "
-        f"{world_clock.acceleration:.0f}x faster than real life, agent is {mode}.",
+        f"{world_clock.acceleration:.0f}x faster than real life, agent is scoring orders for the driver.",
     )
 
     # Un dia simulado completo (1440 min) toma esto en minutos reales; es el
@@ -730,12 +844,88 @@ def get_state(run_id: str, db: Session = Depends(get_session)):
     return _to_state(rt)
 
 
+@router.get("/route", response_model=RoutePreviewOut)
+def get_order_route(run_id: str, order_id: str):
+    """La ruta real que se recorreria si se acepta `order_id`, EMPEZANDO DESDE
+    DONDE ESTA EL REPARTIDOR AHORA MISMO (`_courier_live_position`) — nunca
+    desde `_next_free_position` (donde quedaria libre tras terminar lo que ya
+    trae en cola). Usar la posicion futura aqui era el bug: la vista previa
+    dibujaba una ruta que arrancaba en un punto en el que el repartidor
+    todavia no esta, un salto que no corresponde a nada visible en el mapa.
+
+    La recomendacion de la tarjeta (should_accept en la lista) SI sigue
+    evaluandose sobre `_next_free_position` (ver _revalue_pending_orders): esa
+    es la pregunta economica correcta ("¿conviene aceptar esto para cuando me
+    desocupe?"). Esta vista previa contesta una pregunta distinta ("¿como se
+    ve la ruta si fuera ahora mismo?"), por eso recalcula su propia evaluacion
+    en vez de reusar `pending.evaluation` — sin esto, los tramos dibujados
+    (frescos, desde la posicion real) y los totales mostrados (congelados,
+    desde la posicion futura) contarian dos historias distintas.
+
+    Bajo demanda y de solo lectura (no hace `_tick` ni `persist`): el
+    frontend la pide cuando el conductor SELECCIONA una oferta, no en cada
+    sondeo. Rutear las 5 ofertas pendientes cada 2s costaria cinco A* sobre
+    el grafo de la ZMM para pintar, casi siempre, una sola.
+    """
+    rt = _load_runtime(run_id)
+    pending = rt.state.pending_orders.get(order_id)
+    if pending is None:
+        raise HTTPException(404, "That order is no longer available")
+
+    order = pending.order
+    pickup = (order["pickup_lat"], order["pickup_lon"])
+    dropoff = (order["dropoff_lat"], order["dropoff_lon"])
+    origin = _courier_live_position(rt) or pickup
+
+    to_pickup = try_shortest_route(rt.graph, origin, pickup)
+    to_dropoff = try_shortest_route(rt.graph, pickup, dropoff)
+    if to_pickup is None or to_dropoff is None:
+        # Un cierre de calle dejo la orden sin ruta servible. 409 y no 500:
+        # el estado del turno esta bien, es esta oferta la que ya no sirve.
+        raise HTTPException(409, "No route available for this order right now")
+
+    route = to_pickup[0] + to_dropoff[0][1:]
+    coords, pickup_idx = _split_route_geometry(rt.graph, route, len(to_pickup[0]) - 1)
+
+    to_pickup_minutes = to_pickup[1] / 60
+    to_dropoff_minutes = to_dropoff[1] / 60
+    # Evaluacion fresca desde la posicion REAL actual — no la congelada de
+    # `pending.evaluation` (calculada con la posicion futura libre).
+    live_evaluation = OrderEvaluation(
+        fare=order["fare"],
+        distance_km=(to_pickup[2] + to_dropoff[2]) / 1000,
+        time_minutes=to_pickup_minutes + to_dropoff_minutes + settings.service_time_minutes,
+        vehicle=VehicleType(rt.state.vehicle),
+    )
+
+    return RoutePreviewOut(
+        order_id=order_id,
+        pickup_name=order.get("pickup_name"),
+        coordinates=coords,
+        pickup_index=pickup_idx,
+        stops=_stops_for(order, origin, to_pickup_minutes, live_evaluation.time_minutes),
+        legs=[
+            RouteLegOut(
+                kind="to_pickup",
+                distance_km=to_pickup[2] / 1000,
+                minutes=round(to_pickup_minutes, 1),
+            ),
+            RouteLegOut(
+                kind="to_dropoff",
+                distance_km=to_dropoff[2] / 1000,
+                minutes=round(to_dropoff_minutes, 1),
+            ),
+        ],
+        total_minutes=live_evaluation.time_minutes,
+        distance_km=live_evaluation.distance_km,
+        fare=order["fare"],
+        score=live_evaluation.score,
+    )
+
+
 @router.post("/decide", response_model=SimulationState)
 def decide_order(payload: DecisionRequest, db: Session = Depends(get_session)):
     rt = _load_runtime(payload.run_id)
-    if rt.state.autonomous:
-        raise HTTPException(409, "This shift runs autonomously — the agent decides its own orders")
-
     _settle_order(rt, db, payload.order_id, accept=payload.accept)
     rt.persist()
     return _to_state(rt)
@@ -749,9 +939,6 @@ def end_simulation(payload: RunIdRequest, db: Session = Depends(get_session)):
     state.finished = True
     state.pending_orders.clear()
     state.active_deliveries.clear()
-    if state.active_closure is not None:
-        clear_road_closure(rt.graph, state.active_closure["u"], state.active_closure["v"])
-        state.active_closure = None
     _log(rt, "shift_ended", f"Shift ended — net earnings ${state.net_earnings:.2f} MXN")
 
     for run_id, total in ((state.run_id, state.net_earnings), (state.novice_run_id, state.novice_earnings)):
@@ -762,42 +949,6 @@ def end_simulation(payload: RunIdRequest, db: Session = Depends(get_session)):
             run.final_net_earnings = round(total, 2)
     db.commit()
 
-    rt.persist()
-    return _to_state(rt)
-
-
-@router.post("/god-mode", response_model=SimulationState)
-def god_mode(payload: GodModeRequest, db: Session = Depends(get_session)):
-    rt = _load_runtime(payload.run_id)
-    state = rt.state
-
-    if payload.preset is None:
-        state.hour_override = None
-        state.god_mode_preset = None
-        if state.active_closure is not None:
-            clear_road_closure(rt.graph, state.active_closure["u"], state.active_closure["v"])
-            state.active_closure = None
-        _log(rt, "god_mode", "Traffic back to normal, roads reopened.")
-    else:
-        if payload.preset not in GOD_MODE_PRESETS:
-            raise HTTPException(400, f"Unknown preset, options: {list(GOD_MODE_PRESETS)}")
-        state.hour_override = GOD_MODE_PRESETS[payload.preset]
-        state.god_mode_preset = payload.preset
-        _log(rt, "god_mode", f"God Mode: jumped to {payload.preset} traffic.")
-
-        # El reto pide que el agente reaccione a un cierre de calle a mitad
-        # de turno ademas del surge de trafico; no hay un boton nuevo en la
-        # UI para esto (no se toco el frontend), asi que se aprovecha el
-        # preset de hora pico de salida que ya existe.
-        if payload.preset == ROAD_CLOSURE_PRESET and state.active_closure is None:
-            near = _courier_live_position(rt) or (settings.city_center_lat, settings.city_center_lon)
-            closure = simulate_random_closure(rt.graph, near_point=near)
-            if closure is not None:
-                state.active_closure = closure
-                street = closure["street_name"] or "a nearby street"
-                _log(rt, "god_mode", f"Accident reported on {street} — the agent must reroute around it.")
-
-    _tick(rt, db)
     rt.persist()
     return _to_state(rt)
 

@@ -47,14 +47,6 @@ TRAFFIC_RULES: list[TrafficRule] = [
 ]
 
 
-# "Modo Dios" para la demo: fuerza la hora virtual a un momento clave.
-GOD_MODE_PRESETS: dict[str, float] = {
-    "manana": 8.0,
-    "comida": 14.0,
-    "salida_trabajo": 18.5,
-}
-
-
 def active_multiplier(street_name: str, virtual_hour: float) -> float:
     """Devuelve el multiplicador de peso vigente para una calle a la hora dada."""
     multiplier = 1.0

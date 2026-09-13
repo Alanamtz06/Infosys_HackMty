@@ -1,18 +1,47 @@
 import { Marker } from "react-map-gl/maplibre";
 
-import type { Order } from "../../types";
+import type { PendingOrder } from "../../types";
 
 interface Props {
-  order: Order;
+  order: PendingOrder;
+  selected: boolean;
+  /** Se atenua cuando hay OTRA oferta seleccionada: la ruta en pantalla es
+   *  de esa, y las demas no deben competir con ella. */
+  dimmed: boolean;
+  onSelect: () => void;
 }
 
-export function OrderMarker({ order }: Props) {
+export function OrderMarker({ order, selected, dimmed, onSelect }: Props) {
   return (
-    <Marker latitude={order.pickup_lat} longitude={order.pickup_lon}>
-      <div className="animate-pop-in relative flex h-6 w-6 items-center justify-center">
-        <span className="absolute h-6 w-6 animate-pulse-ring rounded-full bg-blush/70" />
-        <span className="relative z-10 h-3 w-3 rounded-full bg-blush ring-2 ring-plum" />
-      </div>
+    <Marker
+      latitude={order.pickup_lat}
+      longitude={order.pickup_lon}
+      // Sin esto, MapLibre se queda el clic para arrastrar el mapa y el
+      // marcador nunca recibe el evento.
+      onClick={(event) => {
+        event.originalEvent.stopPropagation();
+        onSelect();
+      }}
+    >
+      <button
+        aria-label={`Show route for ${order.pickup_name ?? "this order"}`}
+        aria-pressed={selected}
+        className={`animate-pop-in relative flex h-7 w-7 items-center justify-center rounded-full transition duration-300 ease-out hover:scale-110 ${
+          dimmed ? "opacity-40" : "opacity-100"
+        }`}
+      >
+        {!dimmed && (
+          <span className="absolute h-6 w-6 animate-pulse-ring rounded-full bg-blush/70" aria-hidden="true" />
+        )}
+        {/* `z-10` local, no la escala del sistema (z-panel/header/modal): solo
+            levanta el punto por encima de su propio anillo de pulso, dentro
+            de este marcador. */}
+        <span
+          className={`relative z-10 rounded-full transition duration-300 ease-out ${
+            selected ? "h-4 w-4 bg-plum ring-[3px] ring-paper" : "h-3 w-3 bg-blush ring-2 ring-plum"
+          }`}
+        />
+      </button>
     </Marker>
   );
 }

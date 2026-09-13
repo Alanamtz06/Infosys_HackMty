@@ -34,6 +34,13 @@ ALTER TABLE simulation_runs
 CREATE INDEX IF NOT EXISTS ix_simulation_runs_user
     ON simulation_runs (user_id);
 
+-- Modo Dios se elimino del producto: la columna que registraba su preset ya
+-- no tiene lector ni escritor en el ORM (ver db/models.py). DROP y no solo
+-- dejarla huerfana, para que el esquema de Tiger Data refleje lo que el
+-- codigo realmente usa.
+ALTER TABLE simulation_runs
+    DROP COLUMN IF EXISTS god_mode_preset;
+
 -- Defaults del lado de Postgres (no solo en el ORM) para que un INSERT en
 -- SQL puro desde el editor de Tiger Cloud tambien funcione sin tener que
 -- pasar todas las columnas. Van aqui porque ALTER COLUMN SET DEFAULT no lo

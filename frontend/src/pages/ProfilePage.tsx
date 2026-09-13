@@ -1,9 +1,9 @@
-import { ProfileStats } from "../components/profile/ProfileStats";
+import { ProfileEdit } from "../components/profile/ProfileEdit";
 
 export function ProfilePage() {
   return (
     <div className="min-h-full">
-      <ProfileStats />
+      <ProfileEdit />
     </div>
   );
 }

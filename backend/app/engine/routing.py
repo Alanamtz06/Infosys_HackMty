@@ -230,3 +230,78 @@ def simulate_random_closure(graph: nx.MultiDiGraph, near_point: tuple[float, flo
 
     apply_road_closure(graph, u, v)
     return {"u": u, "v": v, "street_name": street_name}
+
+
+# --------------------------------------------------------------------------
+# Geometria para el mapa
+# --------------------------------------------------------------------------
+
+
+def _best_edge(graph: nx.MultiDiGraph, u: int, v: int) -> dict:
+    """La arista paralela que realmente se recorre: la mas rapida, igual que
+    `_path_time_and_distance`. Si se tomara otra, la linea dibujada en el
+    mapa no seria la calle que el Score cobro."""
+    return min(graph.get_edge_data(u, v).values(), key=lambda d: d.get("travel_time", float("inf")))
+
+
+def _node_xy(graph: nx.MultiDiGraph, node: int) -> tuple[float, float]:
+    data = graph.nodes[node]
+    return float(data["x"]), float(data["y"])
+
+
+def _sq_dist(a: tuple[float, float], b: tuple[float, float]) -> float:
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+
+def route_coordinates(graph: nx.MultiDiGraph, route: list[int]) -> list[tuple[float, float]]:
+    """La ruta como `[(lon, lat), ...]` lista para pintar en MapLibre.
+
+    Sigue la geometria REAL de la calle cuando OSMnx la trae (`geometry` de
+    la arista, una LineString con los puntos intermedios de la via); solo cae
+    al segmento recto nodo-a-nodo cuando no existe. La diferencia se ve: sin
+    esto, una avenida curva como Constitucion se dibuja como una sucesion de
+    rectas que cortan por encima del rio.
+
+    Ojo con el sentido: OSMnx no garantiza que `geometry` este orientada de
+    `u` a `v` (una via bidireccional guarda la MISMA LineString en las dos
+    aristas), asi que cada tramo se voltea si su primer punto quedo mas lejos
+    de `u` que el ultimo. Sin ese chequeo la ruta sale en zigzag.
+    """
+    if not route:
+        return []
+    if len(route) == 1:
+        return [_node_xy(graph, route[0])]
+
+    coords: list[tuple[float, float]] = []
+    for u, v in zip(route[:-1], route[1:]):
+        geometry = _best_edge(graph, u, v).get("geometry")
+        if geometry is not None:
+            segment = [(float(x), float(y)) for x, y in geometry.coords]
+            start = _node_xy(graph, u)
+            if len(segment) > 1 and _sq_dist(segment[0], start) > _sq_dist(segment[-1], start):
+                segment.reverse()
+        else:
+            segment = [_node_xy(graph, u), _node_xy(graph, v)]
+
+        if coords and segment and coords[-1] == segment[0]:
+            segment = segment[1:]
+        coords.extend(segment)
+
+    return coords
+
+
+def downsample_coordinates(
+    coords: list[tuple[float, float]], max_points: int = 400
+) -> list[tuple[float, float]]:
+    """Adelgaza una polilinea conservando SIEMPRE el primer y el ultimo punto.
+
+    `/simulation/state` se sondea cada 2s y arrastra la ruta de cada entrega
+    en curso; una ruta larga con geometria real puede pasar de mil puntos y
+    no se distingue de una de 400 al zoom al que se ve el mapa.
+    """
+    if len(coords) <= max_points:
+        return coords
+    step = len(coords) / (max_points - 1)
+    thinned = [coords[int(i * step)] for i in range(max_points - 1)]
+    thinned.append(coords[-1])
+    return thinned

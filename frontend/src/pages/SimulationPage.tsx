@@ -2,7 +2,6 @@ import { useEffect } from "react";
 
 import { ControlPanel } from "../components/dashboard/ControlPanel";
 import { LiveLog } from "../components/dashboard/LiveLog";
-import { PendingOrdersPanel } from "../components/dashboard/PendingOrdersPanel";
 import { MapView } from "../components/map/MapView";
 import { simulationApi } from "../services/api";
 import { useAppStore } from "../state/store";
@@ -36,11 +35,12 @@ export function SimulationPage() {
   }, [runId, isFinished, setSimulation]);
 
   return (
-    <div className="flex h-full flex-col bg-paper">
+    <div className="flex min-h-0 flex-1 flex-col bg-paper">
       <ControlPanel />
       <div className="relative flex-1 animate-fade-in" style={{ animationDelay: "150ms" }}>
+        {/* OrdersWidget (lista comparativa inteligente/novato + detalle) vive
+            DENTRO de MapView: necesita el estado de ruta que ya calcula ahi. */}
         <MapView />
-        <PendingOrdersPanel />
         <LiveLog />
       </div>
     </div>

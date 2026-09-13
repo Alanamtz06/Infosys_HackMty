@@ -21,6 +21,28 @@
   }
 }
 
+/* Capas del sistema. Los tokens con nombre viven en tailwind.config.js
+   (`z-panel` 10, `z-header` 20, `z-modal` 30, `z-grain` 40); estas dos reglas
+   son CSS plano y no pueden usarlos, asi que los numeros de aqui tienen que
+   seguir coincidiendo con esa escala. El salto al contenido va en 50, por
+   encima del grano: es lo primero que se debe poder alcanzar. */
+
+/* Salto al contenido: invisible hasta que recibe foco por teclado. No se usa
+   `display:none` ni `visibility:hidden` — eso lo sacaria del orden de
+   tabulacion y el enlace dejaria de existir justo para quien lo necesita. */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  z-index: 50;
+  transform: translateY(-150%);
+  transition: transform 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(1rem);
+}
+
 /* Textura de papel: grano sutil fijo, nunca sobre contenido con scroll pesado. */
 .paper-grain {
   position: fixed;

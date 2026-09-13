@@ -21,6 +21,18 @@ export default {
         charcoal: "#3E3D41",
         dust: "#D8CCCA",
       },
+      // Capas del sistema, con nombre en vez de numeros sueltos: antes habia
+      // z-10/20/30 repartidos por los componentes y un z-40 suelto en el CSS
+      // del grano, y no habia forma de saber cual gana sin ir a buscarlos.
+      // El orden es el de apilamiento real: paneles sobre el mapa, cabecera
+      // sobre los paneles, modal sobre todo, y el grano hasta arriba porque
+      // es una textura que cubre la interfaz entera.
+      zIndex: {
+        panel: "10",
+        header: "20",
+        modal: "30",
+        grain: "40",
+      },
       // Curvas tomadas de la tabla de la skill `animate` (no inventadas):
       // ease-out fuerte para entradas/salidas, ease-in-out fuerte para
       // elementos que se mueven en pantalla, y la curva "drawer" estilo iOS.

@@ -72,7 +72,6 @@ class SimulationRun(Base):
 
     agent_type: Mapped[str] = mapped_column(String)  # "inteligente" | "novato"
     vehicle: Mapped[str] = mapped_column(String, default="moto", server_default="moto")  # "moto" | "auto"
-    god_mode_preset: Mapped[str | None] = mapped_column(String, nullable=True)
 
     start_hour: Mapped[float] = mapped_column(Float, default=11.0, server_default=text("11.0"))
     shift_duration_minutes: Mapped[int] = mapped_column(Integer, default=480, server_default=text("480"))

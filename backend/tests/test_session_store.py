@@ -33,9 +33,6 @@ def _state() -> SessionState:
         vehicle="moto",
         started_sim_seconds=120.0,
         last_tick_sim_seconds=180.0,
-        autonomous=True,
-        hour_override=18.5,
-        god_mode_preset="salida_trabajo",
         net_earnings=143.25,
         novice_earnings=98.1,
         orders_accepted=3,
@@ -43,7 +40,6 @@ def _state() -> SessionState:
         courier_position=(25.66, -100.30),
         novice_position=(25.70, -100.25),
         novice_busy_until_sim_seconds=999.0,
-        active_closure={"u": 111, "v": 222, "street_name": "Av. Gonzalitos"},
         pending_orders={ORDER["id"]: PendingOrder(order=ORDER, evaluation=evaluation)},
         active_deliveries=[
             ActiveDelivery(order=ORDER, route=[1, 2, 3], total_seconds=640.0, started_sim_seconds=200.0)
@@ -57,12 +53,9 @@ def test_serialization_round_trip_keeps_everything():
     restored = SessionState.from_dict(original.to_dict())
 
     assert restored.run_id == original.run_id
-    assert restored.autonomous is True
-    assert restored.hour_override == 18.5
     assert restored.net_earnings == pytest.approx(143.25)
     assert restored.novice_busy_until_sim_seconds == pytest.approx(999.0)
     assert restored.courier_position == (25.66, -100.30)
-    assert restored.active_closure == original.active_closure
     assert restored.events == original.events
 
 

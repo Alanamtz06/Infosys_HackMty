@@ -21,6 +21,7 @@ import osmnx as ox
 
 from app.config import settings
 from app.engine.pois import random_house_near
+from app.engine.zones import nearest_zone
 
 PEAK_HOURS = [(13.0, 15.0), (19.0, 22.0)]
 PEAK_RATE_MULTIPLIER = 5.0
@@ -157,6 +158,10 @@ def generate_order(
         "pickup_lat": restaurant["lat"],
         "pickup_lon": restaurant["lon"],
         "pickup_name": restaurant["name"],
+        # Zona del RESTAURANTE (donde el repartidor va a estar la mayor parte
+        # del tramo pagado), no de la casa: es lo que el conductor lee como
+        # "esta oferta es de Cumbres" al comparar contra otras zonas.
+        "zone": nearest_zone(restaurant["lat"], restaurant["lon"]),
         "dropoff_lat": house_lat,
         "dropoff_lon": house_lon,
         "fare": fare_for_distance(float(delivery_km), virtual_hour),
