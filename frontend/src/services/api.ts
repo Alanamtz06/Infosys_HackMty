@@ -1,9 +1,11 @@
 import axios from "axios";
 
 import type {
+  BenchmarkResult,
   HistoryResponse,
   LiveDashboardResponse,
   RoutePreview,
+  ScoreboardResponse,
   SimulationState,
   User,
   VehicleType,
@@ -32,6 +34,10 @@ export const simulationApi = {
   // sondeo (rutear las 5 pendientes cada 2s seria caro y casi todo tirado).
   getRoute: (runId: string, orderId: string) =>
     api.get<RoutePreview>("/simulation/route", { params: { run_id: runId, order_id: orderId } }),
+  // Turno headless (agente autonomo vs novato, sin reloj del mundo): el
+  // dashboard lo dispara bajo demanda, nunca en el sondeo automatico.
+  benchmark: (payload: { hours: number; vehicle: VehicleType; start_hour?: number }) =>
+    api.post<BenchmarkResult>("/simulation/benchmark", payload),
 };
 
 export const ordersApi = {
@@ -44,7 +50,8 @@ export const auditApi = {
 
 export const statsApi = {
   getHistory: (period: string) => api.get<HistoryResponse>(`/stats/history/${period}`),
-  getScoreboard: () => api.get("/stats/scoreboard"),
+  getScoreboard: (sessionId?: string) =>
+    api.get<ScoreboardResponse>("/stats/scoreboard", { params: sessionId ? { session_id: sessionId } : undefined }),
   getLive: () => api.get<LiveDashboardResponse>("/stats/live"),
 };
 

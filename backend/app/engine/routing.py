@@ -159,11 +159,33 @@ def route_total_time(graph: nx.MultiDiGraph, route: list[int]) -> float:
     return travel_time
 
 
+def edge_times_for_route(graph: nx.MultiDiGraph, route: list[int]) -> list[float]:
+    """Snapshot de `travel_time` por arista de `route`, uno por cada par
+    consecutivo de nodos, CONGELADO en el instante en que se llama.
+
+    `apply_traffic` (ver `engine/graph_loader.py`) muta las aristas del grafo
+    COMPARTIDO de proceso en cada tick (`/simulation/state` la llama cada
+    ~2s reales), segun la hora virtual. Una entrega ya aceptada guarda su
+    `total_seconds`/`dwell_checkpoints` en el momento de planearse — si
+    `position_along_route` releyera el grafo en vivo mas tarde y el trafico
+    cambio mientras tanto (cruzar una hora pico a mitad de un viaje corto es
+    comun con `TIME_ACCELERATION` alto), el presupuesto de tiempo ya
+    congelado y las aristas que se van sumando dejan de coincidir: el
+    repartidor se ve "congelado" esperando llegar (si el trafico mejoro) o
+    "salta" antes de tiempo al dropoff (si empeoro). Pasar este snapshot a
+    `position_along_route` evita el desfase por completo.
+    """
+    return [
+        min(d["travel_time"] for d in graph.get_edge_data(u, v).values()) for u, v in zip(route[:-1], route[1:])
+    ]
+
+
 def position_along_route(
     graph: nx.MultiDiGraph,
     route: list[int],
     elapsed_seconds: float,
     dwell_checkpoints: list[tuple[float, float]] | None = None,
+    edge_times: list[float] | None = None,
 ) -> tuple[float, float]:
     """(lat, lon) del punto donde va el repartidor tras `elapsed_seconds` sobre `route`.
 
@@ -171,6 +193,15 @@ def position_along_route(
     tiempo de viaje de esa arista — no es exacto sobre la geometria real de
     la calle (ignora la curvatura intermedia de OSM), pero es suficiente
     para mover un marcador en el mapa de forma continua y creible.
+
+    `edge_times` (ver `edge_times_for_route`): snapshot congelado del tiempo
+    por arista al momento de aceptar la entrega. Para una entrega EN CURSO
+    siempre hay que pasarlo — sin el, esta funcion relee `travel_time` en
+    vivo del grafo compartido, que sigue cambiando con el trafico despues de
+    que la entrega ya comprometio su presupuesto de tiempo (ver docstring de
+    `edge_times_for_route`). `None` solo tiene sentido para un preview que
+    todavia no se acepto (`/simulation/route`), donde SI se quiere el trafico
+    actual.
 
     `dwell_checkpoints` = [(tiempo_fisico_acumulado_al_llegar, segundos_de_pausa), ...]
     (ver `app.decision.batching.plan_backpack_route` / `_start_delivery`):
@@ -193,7 +224,7 @@ def position_along_route(
     remaining = elapsed_seconds
     physical_elapsed = 0.0
 
-    for u, v in zip(route[:-1], route[1:]):
+    for i, (u, v) in enumerate(zip(route[:-1], route[1:])):
         # Cualquier pausa de servicio que ocurra al llegar a este nodo (antes
         # de tomar la siguiente arista) se consume aqui, congelado en `u`.
         while checkpoint_idx < len(checkpoints) and checkpoints[checkpoint_idx][0] <= physical_elapsed + 1e-6:
@@ -204,7 +235,10 @@ def position_along_route(
                 return float(node["y"]), float(node["x"])
             remaining -= dwell
 
-        edge_time = min(d["travel_time"] for d in graph.get_edge_data(u, v).values())
+        if edge_times is not None:
+            edge_time = edge_times[i]
+        else:
+            edge_time = min(d["travel_time"] for d in graph.get_edge_data(u, v).values())
         if not math.isfinite(edge_time):
             edge_time = 0.0
         if remaining <= edge_time or edge_time == 0:

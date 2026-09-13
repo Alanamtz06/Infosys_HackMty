@@ -119,6 +119,17 @@ class ActiveDelivery:
     # [(tiempo_fisico_acumulado_al_llegar_al_pickup, segundos_de_pausa), ...]
     dwell_checkpoints: list[tuple[float, float]] = field(default_factory=list)
 
+    # Snapshot de `travel_time` por arista de `route`, congelado al aceptar
+    # (ver `engine/routing.py::edge_times_for_route`). `apply_traffic` muta
+    # las aristas del grafo compartido en cada tick segun la hora virtual; si
+    # `position_along_route` releyera esos valores en vivo para una entrega
+    # YA EN CURSO, el trafico podia cambiar a media entrega (facil con
+    # TIME_ACCELERATION alto) y desincronizar el presupuesto ya congelado
+    # (`total_seconds`/`dwell_checkpoints`) de las aristas que se van
+    # sumando — el repartidor se veia "congelado" esperando llegar (trafico
+    # mejoro) o saltaba antes de tiempo al dropoff (trafico empeoro).
+    edge_times: list[float] = field(default_factory=list)
+
     # Cache de geometria (coordenadas ya partidas para el mapa), calculada
     # UNA vez y reusada en cada poll de /simulation/state mientras dure esta
     # entrega — la ruta no cambia entre aceptar la orden y completarla, asi
@@ -139,6 +150,7 @@ class ActiveDelivery:
             "extra_order": self.extra_order,
             "stop_markers": self.stop_markers,
             "dwell_checkpoints": self.dwell_checkpoints,
+            "edge_times": self.edge_times,
         }
 
     @classmethod
@@ -153,6 +165,11 @@ class ActiveDelivery:
             extra_order=data.get("extra_order"),
             stop_markers=list(data.get("stop_markers") or []),
             dwell_checkpoints=[tuple(c) for c in (data.get("dwell_checkpoints") or [])],
+            # Lista vacia (no None) para un turno serializado ANTES de este
+            # campo (Redis entre despliegues): position_along_route cae de
+            # vuelta a leer el grafo en vivo para esa entrega puntual, mismo
+            # comportamiento que tenia antes de este fix.
+            edge_times=list(data.get("edge_times") or []),
         )
 
 
@@ -188,6 +205,26 @@ class SessionState:
     active_deliveries: list[ActiveDelivery] = field(default_factory=list)
     events: list[dict] = field(default_factory=list)
 
+    # --- Tercer agente: autonomo (misma decision/policy.py que el humano,
+    # SIN esperar a /simulation/decide) — ver _record_autonomous_decision en
+    # api/routes/simulation.py. Corre EN VIVO, en paralelo a inteligente y
+    # novato sobre el mismo stream, para que el dashboard pueda comparar los
+    # tres en tiempo real y no solo via /simulation/benchmark (headless,
+    # stream distinto).
+    #
+    # A proposito SIN posicion ni busy_until propios (a diferencia del
+    # novato): no es un repartidor que compite por entregas reales, es una
+    # referencia PURA de calidad de decision sobre CADA oferta que aparece —
+    # meterle una restriccion de capacidad lo volveria un tercer repartidor
+    # mas con su propia suerte de agenda, exactamente lo que ya mide el
+    # novato.
+    autonomous_run_id: str = ""
+    autonomous_earnings: float = 0.0
+    # Ritmo propio del autonomo para su tarifa de reserva (policy.PolicyState):
+    # no puede compartir el contador del humano, que decide mas lento y con
+    # dudas — cada agente relaja su umbral segun SU PROPIO atraso.
+    autonomous_orders_accepted: int = 0
+
     def to_dict(self) -> dict:
         return {
             "run_id": self.run_id,
@@ -211,6 +248,9 @@ class SessionState:
             "pending_orders": {oid: p.to_dict() for oid, p in self.pending_orders.items()},
             "active_deliveries": [d.to_dict() for d in self.active_deliveries],
             "events": self.events,
+            "autonomous_run_id": self.autonomous_run_id,
+            "autonomous_earnings": self.autonomous_earnings,
+            "autonomous_orders_accepted": self.autonomous_orders_accepted,
         }
 
     @classmethod
@@ -242,4 +282,10 @@ class SessionState:
             },
             active_deliveries=[ActiveDelivery.from_dict(d) for d in (data.get("active_deliveries") or [])],
             events=list(data.get("events") or []),
+            # `or ""` en vez de .get(..., "") para tolerar estado serializado
+            # ANTES de este campo (Redis entre despliegues): ahi la llave
+            # existe pero vale None.
+            autonomous_run_id=data.get("autonomous_run_id") or "",
+            autonomous_earnings=data.get("autonomous_earnings", 0.0),
+            autonomous_orders_accepted=data.get("autonomous_orders_accepted", 0),
         )

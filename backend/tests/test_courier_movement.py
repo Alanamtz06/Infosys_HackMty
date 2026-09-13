@@ -8,6 +8,7 @@ import pytest
 from app.engine.routing import (
     apply_road_closure,
     clear_road_closure,
+    edge_times_for_route,
     position_along_route,
     route_total_time,
     try_shortest_route,
@@ -92,6 +93,55 @@ def test_dwell_checkpoint_pauses_at_the_stop_not_at_the_end(small_graph):
     )
     last = small_graph.nodes[route[-1]]
     assert after_dwell_and_more == pytest.approx((last["y"], last["x"]))
+
+
+def test_frozen_edge_times_survive_traffic_changing_mid_delivery(small_graph):
+    """Regresion: `apply_traffic` (engine/graph_loader.py) muta `travel_time`
+    del grafo COMPARTIDO en cada tick segun la hora virtual — con
+    TIME_ACCELERATION alto, es comun cruzar una hora pico a media entrega.
+
+    Si `position_along_route` releyera esas aristas en vivo para una entrega
+    YA EN CURSO, un cambio de trafico desincroniza el presupuesto de tiempo
+    ya congelado (`total_seconds`, calculado UNA vez al aceptar) de las
+    aristas que se van sumando. Cuando el trafico MEJORA a media entrega esto
+    se ve como "el repartidor llego y se quedo congelado en el destino"
+    (el vivo ya recorrio la ruta con las aristas mas rapidas, pero el sistema
+    no marca la entrega completa hasta que se cumple el `total_seconds`
+    viejo, mas lento) — el bug real que reporto un usuario. `edge_times`
+    (ver `edge_times_for_route`) congela las aristas al aceptar para que la
+    interpolacion no dependa de que tan viejo o nuevo sea el trafico en vivo.
+    """
+    _origin, _dest, route = _two_connected_points(small_graph)
+    total = route_total_time(small_graph, route)
+    # Snapshot ANTES de que el trafico cambie, como hace `_start_delivery`.
+    edge_times = edge_times_for_route(small_graph, route)
+
+    # El trafico MEJORA mucho a media entrega (p.ej. termino la hora pico).
+    for u, v in zip(route[:-1], route[1:]):
+        for data in small_graph.get_edge_data(u, v).values():
+            data["travel_time"] *= 0.1
+
+    try:
+        elapsed = total * 0.6  # todavia no deberia haber llegado
+        last = small_graph.nodes[route[-1]]
+
+        # Sin el snapshot (comportamiento viejo): al releer las aristas en
+        # vivo (ahora 10x mas rapidas), el recorrido fisico completo cabe
+        # muy por debajo de `elapsed` y la funcion cae en el ULTIMO nodo —
+        # se ve "ya llegado" cuando en realidad faltan minutos por el reloj
+        # del mundo.
+        live_read = position_along_route(small_graph, route, elapsed)
+        assert live_read == pytest.approx((last["y"], last["x"]))
+
+        # Con el snapshot, la interpolacion sigue usando las aristas de
+        # cuando se acepto la entrega — todavia a medio camino, como debe
+        # ser mientras el reloj del mundo no llegue a `total_seconds`.
+        frozen = position_along_route(small_graph, route, elapsed, edge_times=edge_times)
+        assert frozen != pytest.approx((last["y"], last["x"]))
+    finally:
+        for u, v in zip(route[:-1], route[1:]):
+            for data in small_graph.get_edge_data(u, v).values():
+                data["travel_time"] /= 0.1
 
 
 def test_position_returns_plain_floats(small_graph):

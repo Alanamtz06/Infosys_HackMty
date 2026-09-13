@@ -51,6 +51,7 @@ from app.engine.pois import load_restaurants
 from app.engine.zones import nearest_zone
 from app.engine.routing import (
     downsample_coordinates,
+    edge_times_for_route,
     position_along_route,
     route_coordinates,
     route_total_time,
@@ -162,7 +163,9 @@ def _courier_live_position(rt: ShiftRuntime) -> tuple[float, float] | None:
         if head.started_sim_seconds is not None:
             elapsed = world_clock.sim_elapsed_seconds() - head.started_sim_seconds
             try:
-                return position_along_route(rt.graph, head.route, elapsed, head.dwell_checkpoints)
+                return position_along_route(
+                    rt.graph, head.route, elapsed, head.dwell_checkpoints, head.edge_times or None
+                )
             except (ValueError, KeyError):
                 pass
     return rt.state.courier_position
@@ -420,6 +423,9 @@ def _merge_into_backpack(rt: ShiftRuntime, candidate_order: dict) -> None:
         to_pickup_seconds=plan.to_pickup_seconds,
         stop_markers=plan.stop_markers,
         dwell_checkpoints=plan.dwell_checkpoints,
+        # Congelado AQUI, mismo instante que `plan.total_seconds` (ver
+        # `edge_times_for_route` y el comentario en `_start_delivery`).
+        edge_times=edge_times_for_route(rt.graph, plan.route),
     )
 
 
@@ -595,6 +601,7 @@ def _generate_and_evaluate_order(rt: ShiftRuntime, db: Session, virtual_hour: fl
     db.commit()
 
     _record_novice_decision(rt, db, order, virtual_hour, pending)
+    _record_autonomous_decision(rt, db, order, virtual_hour, evaluation)
 
     _log(
         rt,
@@ -679,6 +686,70 @@ def _record_novice_decision(
             time_cost=evaluation.time_minutes * settings.time_cost_per_minute,
             score=evaluation.score,
             net_earnings_delta=evaluation.score,
+            virtual_hour=virtual_hour,
+        )
+    )
+    db.commit()
+
+
+def _autonomous_policy_state(rt: ShiftRuntime) -> policy.PolicyState:
+    """Ritmo del autonomo, INDEPENDIENTE del contador del humano
+    (`_policy_state`) — cada agente relaja su tarifa de reserva segun su
+    propio atraso, no el ajeno."""
+    return policy.PolicyState(
+        orders_accepted=rt.state.autonomous_orders_accepted,
+        virtual_minutes_elapsed=(world_clock.sim_elapsed_seconds() - rt.state.started_sim_seconds) / 60,
+    )
+
+
+def _record_autonomous_decision(
+    rt: ShiftRuntime, db: Session, order: dict, virtual_hour: float, evaluation: OrderEvaluation
+) -> None:
+    """El tercer agente decide la MISMA oferta que ya se evaluo para el humano
+    (mismos numeros, `evaluation` reusada — nada de rutear otra vez) con la
+    MISMA regla (`decision.policy.should_accept`), sin esperar a que nadie
+    apriete Aceptar/Rechazar.
+
+    A proposito SIN capacidad ni posicion propia (a diferencia del novato,
+    que si "ocupa tiempo" con `busy_until`): este agente no compite por
+    entregas reales, es una referencia PURA de calidad de decision — que tan
+    seguido el criterio dice "si" sobre CADA oferta que aparece, para poder
+    comparar y mejorar las decisiones futuras. Meterle un limite de capacidad
+    lo volveria un tercer repartidor mas (con su propia suerte de agenda),
+    exactamente lo que ya mide el novato; el valor de este agente es medir la
+    politica en aislamiento, sin ese ruido.
+
+    Es lo que permite comparar los tres en tiempo real en el dashboard
+    (`/stats/live`), a diferencia de `/simulation/benchmark`, que corre un
+    turno headless aparte sobre un stream distinto.
+    """
+    state = rt.state
+    if not state.autonomous_run_id:
+        # Turno que arranco antes de que este tercer agente existiera y
+        # sigue vivo en Redis tras un deploy — no hay run_id donde escribir.
+        return
+
+    accept = policy.should_accept(evaluation, _autonomous_policy_state(rt))
+    net_delta = evaluation.score if accept else 0.0
+
+    if accept:
+        state.autonomous_earnings += evaluation.score
+        state.autonomous_orders_accepted += 1
+
+    db.add(
+        TripRecord(
+            run_id=uuid.UUID(state.autonomous_run_id),
+            order_id=uuid.UUID(order["id"]),
+            agent_type="autonomo",
+            vehicle=state.vehicle,
+            accepted=accept,
+            fare=evaluation.fare,
+            distance_km=evaluation.distance_km,
+            time_minutes=evaluation.time_minutes,
+            gas_cost=evaluation.distance_km * evaluation.gas_cost_per_km,
+            time_cost=evaluation.time_minutes * settings.time_cost_per_minute,
+            score=evaluation.score,
+            net_earnings_delta=net_delta,
             virtual_hour=virtual_hour,
         )
     )
@@ -773,6 +844,11 @@ def _start_delivery(rt: ShiftRuntime, order: dict) -> None:
             # La pausa de servicio ocurre AL LLEGAR al pickup (esperando la
             # comida), no al final de la ruta — ver position_along_route.
             dwell_checkpoints=[(to_pickup[1], settings.service_time_minutes * 60)],
+            # Congelado AQUI, mismo instante que `total_seconds`: el trafico
+            # sigue cambiando en los ticks siguientes (`apply_traffic`) y
+            # `position_along_route` no debe releerlo en vivo para una
+            # entrega ya en curso (ver `edge_times_for_route`).
+            edge_times=edge_times_for_route(rt.graph, route),
         )
     )
 
@@ -933,7 +1009,9 @@ def _to_active_routes(rt: ShiftRuntime) -> list[ActiveRouteOut]:
             elapsed = max(now_s - delivery.started_sim_seconds, 0.0)
 
         try:
-            lat, lon = position_along_route(rt.graph, delivery.route, elapsed, delivery.dwell_checkpoints)
+            lat, lon = position_along_route(
+                rt.graph, delivery.route, elapsed, delivery.dwell_checkpoints, delivery.edge_times or None
+            )
         except (ValueError, KeyError):
             lon, lat = coords[0]
 
@@ -1041,6 +1119,7 @@ def start_simulation(payload: SimulationStart, db: Session = Depends(get_session
 
     run_id = uuid.uuid4()
     novice_run_id = uuid.uuid4()
+    autonomous_run_id = uuid.uuid4()
     session_id = uuid.uuid4()
     now_s = world_clock.sim_elapsed_seconds()
     start_hour = world_clock.virtual_hour()
@@ -1056,6 +1135,7 @@ def start_simulation(payload: SimulationStart, db: Session = Depends(get_session
         courier_position=start_position,
         novice_position=start_position,
         zone_center=start_position,
+        autonomous_run_id=str(autonomous_run_id),
     )
     rt = ShiftRuntime.hydrate(state)
 
@@ -1072,7 +1152,7 @@ def start_simulation(payload: SimulationStart, db: Session = Depends(get_session
     real_minutes_per_sim_day = 1440 / world_clock.acceleration
 
     user_id = uuid.UUID(payload.user_id) if payload.user_id else None
-    for rid, agent_type in ((run_id, "inteligente"), (novice_run_id, "novato")):
+    for rid, agent_type in ((run_id, "inteligente"), (novice_run_id, "novato"), (autonomous_run_id, "autonomo")):
         db.add(
             SimulationRun(
                 id=rid,
@@ -1197,8 +1277,14 @@ def end_simulation(payload: RunIdRequest, db: Session = Depends(get_session)):
     state.active_deliveries.clear()
     _log(rt, "shift_ended", f"Shift ended — net earnings ${state.net_earnings:.2f} MXN")
 
-    for run_id, total in ((state.run_id, state.net_earnings), (state.novice_run_id, state.novice_earnings)):
-        run = db.get(SimulationRun, uuid.UUID(run_id))
+    for run_id, total in (
+        (state.run_id, state.net_earnings),
+        (state.novice_run_id, state.novice_earnings),
+        (state.autonomous_run_id, state.autonomous_earnings),
+    ):
+        # `run_id` puede venir vacio para un turno que arranco ANTES de que
+        # este tercer agente existiera y sigue vivo en Redis tras un deploy.
+        run = db.get(SimulationRun, uuid.UUID(run_id)) if run_id else None
         if run is not None:
             run.is_finished = True
             run.ended_at = datetime.utcnow()

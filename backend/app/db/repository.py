@@ -116,7 +116,9 @@ _SESSION_TOTALS_SQL = text("""
         count(*) FILTER (WHERE tr.accepted)                             AS accepted_trips,
         COALESCE(sum(tr.gas_cost) FILTER (WHERE tr.accepted), 0)        AS gas_cost,
         COALESCE(sum(tr.time_minutes) FILTER (WHERE tr.accepted), 0)    AS time_minutes,
-        COALESCE(avg(tr.score) FILTER (WHERE tr.accepted), 0)           AS avg_score
+        COALESCE(sum(tr.distance_km) FILTER (WHERE tr.accepted), 0)     AS distance_km,
+        COALESCE(avg(tr.score) FILTER (WHERE tr.accepted), 0)           AS avg_score,
+        COALESCE(avg(tr.score) FILTER (WHERE NOT tr.accepted), 0)       AS avg_rejected_score
     FROM trip_records tr
     JOIN simulation_runs sr ON sr.id = tr.run_id
     WHERE sr.session_id = :session_id
@@ -125,10 +127,13 @@ _SESSION_TOTALS_SQL = text("""
 
 
 def get_latest_session_id(session: Session) -> str | None:
-    """El `session_id` mas reciente que tenga trip_records para ambos agentes
-    (inteligente y novato). Si el turno mas nuevo todavia no tiene datos para
-    los dos, cae al anterior — evita que el dashboard muestre ceros mientras
-    el backend procesa la primera oferta de un turno recien arrancado."""
+    """El `session_id` mas reciente que tenga trip_records para los TRES
+    agentes (inteligente, novato, autonomo). Si el turno mas nuevo todavia no
+    tiene datos para los tres, cae al anterior — evita que el dashboard
+    muestre ceros mientras el backend procesa la primera oferta de un turno
+    recien arrancado (o mientras el humano no ha decidido nada todavia: novato
+    y autonomo escriben su TripRecord al generarse la orden, inteligente solo
+    al decidir)."""
     return session.execute(
         text("""
             SELECT sr.session_id
@@ -136,7 +141,7 @@ def get_latest_session_id(session: Session) -> str | None:
             JOIN trip_records tr ON tr.run_id = sr.id
             WHERE sr.session_id IS NOT NULL
             GROUP BY sr.session_id
-            HAVING count(DISTINCT sr.agent_type) = 2
+            HAVING count(DISTINCT sr.agent_type) = 3
             ORDER BY max(sr.started_at) DESC
             LIMIT 1
         """)

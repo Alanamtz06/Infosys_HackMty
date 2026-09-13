@@ -123,7 +123,7 @@ export interface Order {
   fare: number;
 }
 
-export type AgentType = "inteligente" | "novato";
+export type AgentType = "inteligente" | "novato" | "autonomo";
 
 export type VehicleType = "moto" | "auto";
 
@@ -140,29 +140,16 @@ export interface LiveDashboardSummary {
   accepted: number;
   net_score: number;
   avg_score: number;
-}
-
-export interface LiveTrip {
-  id: number;
-  created_at: string;
-  run_id: string;
-  order_id: string;
-  agent_type: AgentType;
-  vehicle: VehicleType;
-  accepted: boolean;
-  fare: number;
-  distance_km: number;
-  time_minutes: number;
-  gas_cost_live: number;
-  time_cost_live: number;
-  score_live: number;
-  username: string | null;
+  // Tasa de aceptacion (0-1) y MXN netos por hora TRABAJADA (tiempo en ruta
+  // de entregas aceptadas) — la misma metrica que decision/policy.py compara
+  // contra RESERVATION_RATE_MXN_PER_HOUR para aceptar/rechazar.
+  acceptance_rate: number;
+  earnings_per_hour: number;
 }
 
 export interface LiveDashboardResponse {
   is_active: boolean;
   summary: LiveDashboardSummary[];
-  recent_trips: LiveTrip[];
 }
 
 export interface HistoryPoint {
@@ -188,4 +175,58 @@ export interface HistoryResponse {
   count: number;
   points: HistoryPoint[];
   totals: HistoryTotals;
+}
+
+// --- Marcador global (/stats/scoreboard) y benchmark autonomo (/simulation/benchmark) ---
+// Ambos comparan agentes sobre el MISMO stream de ordenes, pero difieren en
+// quien decide: el marcador es inteligente (asistido por humano) vs novato en
+// vivo; el benchmark corre la MISMA politica de decision sin humano en el
+// loop (agente autonomo) contra el mismo novato, en un turno headless aparte.
+
+export interface ScoreboardAgentTotals {
+  net_earnings: number;
+  trips: number;
+  accepted_trips: number;
+  gas_cost: number;
+  time_minutes: number;
+  distance_km: number;
+  avg_score: number;
+  avg_rejected_score: number;
+  acceptance_rate: number;
+  earnings_per_hour: number;
+  earnings_per_km: number;
+}
+
+export interface ScoreboardResponse {
+  session_id: string | null;
+  inteligente: ScoreboardAgentTotals;
+  novato: ScoreboardAgentTotals;
+  savings: {
+    net_earnings?: number;
+    gas_cost?: number;
+    time_minutes?: number;
+    earnings_per_hour?: number;
+  };
+}
+
+export interface AgentBenchmark {
+  net_earnings: number;
+  accepted: number;
+  rejected: number;
+  missed_while_busy: number;
+  minutes_worked: number;
+  distance_km: number;
+  earnings_per_hour: number;
+}
+
+export interface BenchmarkResult {
+  session_id: string;
+  hours: number;
+  start_hour: number;
+  vehicle: VehicleType;
+  orders_offered: number;
+  inteligente: AgentBenchmark;
+  novato: AgentBenchmark;
+  advantage_mxn: number;
+  advantage_pct: number;
 }
