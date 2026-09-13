@@ -5,6 +5,7 @@ import type { Language } from "./i18n/translations";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { VirtualClock } from "./components/dashboard/VirtualClock";
+import { ShiftButton } from "./components/dashboard/ShiftButton";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SimulationPage } from "./pages/SimulationPage";
 import { useAppStore } from "./state/store";
@@ -59,6 +60,7 @@ export default function App() {
               ${simulation!.net_earnings.toFixed(2)} MXN
             </span>
           )}
+          {view === "simulation" && <ShiftButton />}
         </div>
 
         <div className="flex items-center justify-end gap-2">

@@ -275,20 +275,7 @@ export function MapView() {
 
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-paper/50 via-transparent to-paper/10" />
 
-      {/* Leyenda: ya no comparte espacio con el detalle de una oferta — ese
-          contenido vive dentro de OrdersWidget (abajo a la izquierda), que es
-          el MISMO widget arrastrable que la lista, asi que nunca se traslapan
-          entre si. */}
-      <div className="pointer-events-none absolute left-4 top-4 z-panel">
-        <div className="animate-fade-in flex items-center gap-3 rounded-full bg-paper/90 px-3 py-1.5 text-[11px] text-charcoal shadow-[0_2px_8px_rgba(104,73,89,0.12)] ring-1 ring-plum/15 backdrop-blur">
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-blush ring-1 ring-plum/30" /> {t("map.legend.order")}
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-plum" /> {t("map.legend.courier")}
-          </span>
-        </div>
-      </div>
+
 
       <OrdersWidget
         route={preview}
