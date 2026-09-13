@@ -9,9 +9,11 @@ interface Props {
   route: RoutePreview | null;
   loadingRoute: boolean;
   routeError: string | null;
+  previewEnabled: boolean;
   deciding: boolean;
   onAccept: () => void;
   onReject: () => void;
+  onPreviewRoute: () => void;
 }
 
 function NoviceCell({ order }: { order: PendingOrder }) {
@@ -141,7 +143,7 @@ function EmptyState() {
  * la izquierda, y esta lista abajo a la izquierda; en una ventana baja las
  * dos podian tocarse).
  */
-export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAccept, onReject }: Props) {
+export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, deciding, onAccept, onReject, onPreviewRoute }: Props) {
   const { t } = useTranslation();
   const simulation = useAppStore((s) => s.simulation);
   const selectedOrderId = useAppStore((s) => s.selectedOrderId);
@@ -182,10 +184,12 @@ export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAcce
           route={route}
           loading={loadingRoute}
           error={routeError}
+          previewEnabled={previewEnabled}
           deciding={deciding}
           onAccept={onAccept}
           onReject={onReject}
           onBack={() => setSelectedOrderId(null)}
+          onPreviewRoute={onPreviewRoute}
         />
       ) : (
         <>

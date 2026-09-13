@@ -19,6 +19,12 @@
     outline: 2px solid rgb(104 73 89 / 0.6);
     outline-offset: 2px;
   }
+
+  /* MapLibre markers live inside the map's own DOM — they don't inherit the
+     page font. Force Outfit so labels match the rest of the UI. */
+  .maplibregl-marker {
+    font-family: Outfit, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
 }
 
 /* Capas del sistema. Los tokens con nombre viven en tailwind.config.js

@@ -27,13 +27,16 @@ interface Props {
 function ScooterGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" aria-hidden="true">
-      {/* rueda delantera y trasera: circulos solidos, no rectangulos finos */}
-      <circle cx="12" cy="5" r="2.6" fill="currentColor" />
-      <circle cx="12" cy="19" r="2.6" fill="currentColor" />
-      {/* chasis grueso conectando las dos ruedas */}
-      <rect x="9.7" y="4.5" width="4.6" height="15" rx="2.3" fill="currentColor" />
-      {/* caja de reparto: el unico detalle que distingue moto-de-reparto de moto a secas */}
-      <rect x="7.6" y="10.4" width="8.8" height="6" rx="1.8" className="fill-plum" opacity="0.9" />
+      {/* Llantas */}
+      <rect x="11" y="2" width="2" height="4" rx="1" fill="currentColor" />
+      <rect x="11" y="18" width="2" height="4" rx="1" fill="currentColor" />
+      {/* Manubrio */}
+      <path d="M 6 6 Q 12 4 18 6 L 17 7.5 Q 12 5.5 7 7.5 Z" fill="currentColor" />
+      {/* Casco del conductor */}
+      <circle cx="12" cy="11" r="3.5" fill="currentColor" />
+      <circle cx="12" cy="11.5" r="2.5" className="fill-plum" opacity="0.7" />
+      {/* Chasis */}
+      <path d="M 10.5 7 L 13.5 7 L 12.5 17 L 11.5 17 Z" fill="currentColor" />
     </svg>
   );
 }
@@ -41,11 +44,21 @@ function ScooterGlyph() {
 function CarGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="h-[19px] w-[19px]" aria-hidden="true">
-      {/* carroceria: una sola forma solida, ancha, sin detalle fino que se pierda */}
-      <rect x="6" y="2.5" width="12" height="19" rx="5" fill="currentColor" />
-      {/* parabrisas + medallon: dos cortes anchos, no lineas delgadas */}
-      <rect x="8.3" y="6.2" width="7.4" height="4" rx="1.8" className="fill-plum" />
-      <rect x="8.3" y="14" width="7.4" height="3.6" rx="1.6" className="fill-plum" opacity="0.85" />
+      {/* Espejos laterales */}
+      <path d="M 5 8 C 4 8 4 11 5.5 11 C 6 11 6 8 5 8 Z" fill="currentColor" />
+      <path d="M 19 8 C 20 8 20 11 18.5 11 C 18 11 18 8 19 8 Z" fill="currentColor" />
+      {/* Carroceria curva */}
+      <path d="M 6.5 4 C 6.5 2 8.5 1 12 1 C 15.5 1 17.5 2 17.5 4 L 18 20 C 18 22 15.5 23 12 23 C 8.5 23 6 22 6 20 Z" fill="currentColor" />
+      {/* Parabrisas */}
+      <path d="M 8 7 L 16 7 L 15 11 L 9 11 Z" className="fill-plum" opacity="0.85" />
+      {/* Medallon (vidrio trasero) */}
+      <path d="M 8.5 17.5 L 15.5 17.5 L 14.5 14.5 L 9.5 14.5 Z" className="fill-plum" opacity="0.85" />
+      {/* Faros delanteros */}
+      <rect x="7.5" y="2" width="2.5" height="1.5" rx="0.5" className="fill-plum" opacity="0.5" />
+      <rect x="14" y="2" width="2.5" height="1.5" rx="0.5" className="fill-plum" opacity="0.5" />
+      {/* Luces traseras */}
+      <rect x="7.5" y="21.5" width="3" height="1" rx="0.5" className="fill-plum" opacity="0.6" />
+      <rect x="13.5" y="21.5" width="3" height="1" rx="0.5" className="fill-plum" opacity="0.6" />
     </svg>
   );
 }
@@ -68,7 +81,7 @@ export function VehicleMarker({ lat, lng, bearing = 0, vehicle, variant = "live"
 
   return (
     <Marker latitude={lat} longitude={lng}>
-      <div className="relative flex h-12 w-12 items-center justify-center">
+      <div className="relative flex h-12 w-12 items-center justify-center font-sans">
         {/* Halo: solo en vivo. En el fantasma competiria con el pulso de las
             paradas y el mapa se vuelve ruido. */}
         {!isGhost && (
