@@ -23,6 +23,9 @@ export interface PendingOrder {
   time_cost: number;
   score: number;
   should_accept: boolean;
+  // True si la mochila del repartidor ya tiene 2 pedidos: esta oferta no se
+  // puede aceptar sin importar el score (distinto de "no conviene").
+  at_capacity: boolean;
   // Veredicto que el agente novato YA tomo para esta misma orden — no una
   // prediccion, lo que su propio TripRecord ya registro.
   novice: NoviceOutcome;
@@ -34,6 +37,9 @@ export interface RouteStop {
   lat: number;
   lon: number;
   eta_minutes: number;
+  // A que pedido pertenece esta parada — null para "courier" y para rutas de
+  // un solo pedido; distingue los 2 pickups/dropoffs de una mochila combinada.
+  order_id: string | null;
 }
 
 export interface RouteLeg {
@@ -71,6 +77,9 @@ export interface ActiveRoute {
   eta_minutes: number;
   fare: number;
   is_current: boolean;
+  // Nombre del restaurante del 2do pedido cuando esta entrega es una mochila
+  // combinada (2 pedidos en una sola ruta) — null en el caso normal.
+  extra_pickup_name: string | null;
 }
 
 export interface SimEvent {
@@ -94,6 +103,7 @@ export interface SimulationState {
   time_acceleration: number;
   courier_lat: number | null;
   courier_lon: number | null;
+  /** Pedidos en la mochila del repartidor ahora mismo (0/1/2). */
   active_deliveries: number;
   deliveries_completed: number;
   orders_accepted: number;

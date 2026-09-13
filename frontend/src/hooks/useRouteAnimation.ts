@@ -77,22 +77,36 @@ export interface SmoothPosition {
 }
 
 /**
- * Lleva el marcador desde donde esta hasta `target` en `durationMs`.
+ * Lleva el marcador desde donde esta hasta `target`.
  *
  * La interpolacion es LINEAL a proposito, aunque el resto de la app use
  * curvas propias: esto no es una transicion de interfaz que deba sentirse
  * "suave", es estimacion de posicion entre dos muestras reales. Con una
- * curva de aceleracion, el vehiculo frenaria y arrancaria cada 2 segundos
- * sin que nada en el mundo simulado lo justifique.
+ * curva de aceleracion, el vehiculo frenaria y arrancaria cada vez sin que
+ * nada en el mundo simulado lo justifique.
+ *
+ * La DURACION de cada tramo se mide contra el tiempo REAL transcurrido
+ * desde la muestra anterior (no un `fallbackDurationMs` fijo): si el
+ * backend tardo mas en contestar un sondeo (una oferta cara de puntuar, un
+ * tick lento — ver `_evaluate_backpack_candidate` en el backend), forzar esa
+ * misma distancia en una ventana fija mas corta hace que el vehiculo
+ * "corte" en linea recta a toda velocidad en vez de seguir la ruta con
+ * naturalidad — se ve, y se reporto, como si el repartidor "se
+ * teletransportara". Medir la duracion real evita ese efecto sin tocar para
+ * nada la posicion que manda el backend (que ya es correcta, ver
+ * `position_along_route`/`dwell_checkpoints`).
  */
 export function useSmoothLngLat(
   target: { lng: number; lat: number } | null,
-  durationMs = 2000,
+  fallbackDurationMs = 2000,
 ): SmoothPosition | null {
   const reducedMotion = usePrefersReducedMotion();
   const [position, setPosition] = useState<SmoothPosition | null>(null);
   const positionRef = useRef<SmoothPosition | null>(null);
   const frameRef = useRef(0);
+  // Cuando llego la ULTIMA muestra real (no cuando arranca su animacion) —
+  // sirve para medir cuanto tiempo real paso de verdad entre sondeos.
+  const lastSampleAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     positionRef.current = position;
@@ -104,16 +118,29 @@ export function useSmoothLngLat(
   useEffect(() => {
     if (lng === null || lat === null) {
       setPosition(null);
+      lastSampleAtRef.current = null;
       return;
     }
 
+    const now0 = performance.now();
     const from = positionRef.current;
+    const lastSampleAt = lastSampleAtRef.current;
+    lastSampleAtRef.current = now0;
+
     // Primera muestra (o salto tras reduced-motion): se coloca directo, sin
     // animar desde un origen que no significa nada.
     if (!from || reducedMotion) {
       setPosition({ lng, lat, bearing: from?.bearing ?? 0 });
       return;
     }
+
+    // Duracion real del tramo: el tiempo que de verdad paso desde la ultima
+    // muestra, acotado para que ni un par de sondeos seguidos casi
+    // instantaneos produzcan un salto brusco (piso ~400ms) ni un hueco
+    // enorme (pestaña en segundo plano, tick excepcionalmente lento)
+    // fuerce una animacion absurdamente lenta (techo 8s).
+    const elapsedSinceLastSample = lastSampleAt != null ? now0 - lastSampleAt : fallbackDurationMs;
+    const durationMs = Math.min(Math.max(elapsedSinceLastSample, 400), 8000);
 
     const deltaLng = lng - from.lng;
     const deltaLat = lat - from.lat;
@@ -145,7 +172,7 @@ export function useSmoothLngLat(
 
     frameRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [lng, lat, durationMs, reducedMotion]);
+  }, [lng, lat, fallbackDurationMs, reducedMotion]);
 
   return position;
 }

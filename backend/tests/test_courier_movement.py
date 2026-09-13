@@ -53,6 +53,47 @@ def test_position_is_clamped_past_the_end(small_graph):
     assert position_along_route(small_graph, route, total * 5) == position_along_route(small_graph, route, total)
 
 
+def test_dwell_checkpoint_pauses_at_the_stop_not_at_the_end(small_graph):
+    """Regresion: el tiempo de servicio (esperar la comida) debe congelar al
+    repartidor en el PICKUP, no en el ultimo nodo de la ruta. Antes de este
+    fix, `elapsed_seconds` (que incluye el tiempo de servicio via
+    `total_seconds`) se salia del presupuesto fisico de `route` y
+    `position_along_route` devolvia siempre el ultimo nodo durante ese tiempo
+    de mas — el repartidor se congelaba en el DESTINO en vez de en el
+    origen/pickup, y "reaparecia" avanzando mucho rato despues (se leia como
+    un teletransporte)."""
+    _origin, _dest, route = _two_connected_points(small_graph)
+    total = route_total_time(small_graph, route)
+    dwell_seconds = 480.0
+    # El checkpoint coincide EXACTO con la llegada a un nodo intermedio (no un
+    # total/2 arbitrario que podria caer a mitad de una arista): el
+    # repartidor deberia llegar ahi, congelarse `dwell_seconds`, y solo
+    # despues seguir avanzando.
+    checkpoint_node_idx = len(route) // 2
+    checkpoint_time = route_total_time(small_graph, route[: checkpoint_node_idx + 1])
+    assert 0 < checkpoint_time < total
+    checkpoints = [(checkpoint_time, dwell_seconds)]
+
+    at_checkpoint = position_along_route(small_graph, route, checkpoint_time, checkpoints)
+    # Durante toda la pausa, la posicion no debe moverse del punto del checkpoint.
+    mid_dwell = position_along_route(small_graph, route, checkpoint_time + dwell_seconds / 2, checkpoints)
+    assert mid_dwell == at_checkpoint
+
+    # Elapsed = tiempo fisico total + la pausa completa: SIN dwell_checkpoints
+    # esto quedaria clavado en el ULTIMO nodo (el bug); CON el checkpoint,
+    # debe reflejar solo el tiempo fisico ya consumido (checkpoint_time),
+    # osea seguir en el punto de la pausa apenas se cumple el dwell exacto.
+    right_after_dwell = position_along_route(small_graph, route, checkpoint_time + dwell_seconds, checkpoints)
+    assert right_after_dwell == at_checkpoint
+
+    # Y con tiempo de sobra despues del dwell, si avanza mas alla del checkpoint.
+    after_dwell_and_more = position_along_route(
+        small_graph, route, checkpoint_time + dwell_seconds + (total - checkpoint_time), checkpoints
+    )
+    last = small_graph.nodes[route[-1]]
+    assert after_dwell_and_more == pytest.approx((last["y"], last["x"]))
+
+
 def test_position_returns_plain_floats(small_graph):
     """Los atributos del grafo son numpy.float64; si se filtran, Pydantic
     serializa con DeprecationWarning."""

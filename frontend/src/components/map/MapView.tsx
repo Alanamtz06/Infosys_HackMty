@@ -230,11 +230,17 @@ export function MapView() {
             .filter((stop) => stop.kind !== "courier")
             .map((stop, i) => (
               <StopMarker
-                key={`active-${stop.kind}`}
+                key={`active-${stop.kind}-${stop.order_id ?? i}`}
                 stop={stop}
                 index={i + 1}
                 dimmed={Boolean(preview)}
-                label={translateStopLabel(stop, currentDelivery.pickup_name, t)}
+                label={translateStopLabel(
+                  stop,
+                  stop.kind === "pickup" && stop.order_id !== currentDelivery.order_id
+                    ? currentDelivery.extra_pickup_name
+                    : currentDelivery.pickup_name,
+                  t,
+                )}
               />
             ))}
 

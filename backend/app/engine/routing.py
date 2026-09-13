@@ -121,6 +121,36 @@ def get_travel_time_matrix(graph: nx.MultiDiGraph, points: list[tuple[float, flo
     return matrix
 
 
+def get_travel_distance_matrix(graph: nx.MultiDiGraph, points: list[tuple[float, float]]) -> np.ndarray:
+    """Matriz NxN de distancias (metros) entre `points` (lat, lon).
+
+    Mismo patron que `get_travel_time_matrix` (un Dijkstra por origen, peso
+    `length` en vez de `travel_time`) — usada por `decision.lp_shift_optimizer`
+    para el costo de gasolina de cada arco. Nota: la ruta MAS CORTA en
+    distancia no siempre coincide nodo-a-nodo con la ruta MAS RAPIDA en
+    tiempo (`get_travel_time_matrix`) cuando hay vias con velocidades muy
+    distintas — para el modelo de decision es una aproximacion aceptable
+    (mismo criterio que el fare estimado con great-circle en
+    `order_generator.generate_order`: barato y suficiente para decidir, no
+    para trazar el mapa).
+    """
+    nodes = [ox.nearest_nodes(graph, lon, lat) for lat, lon in points]
+    targets = set(nodes)
+
+    n = len(nodes)
+    matrix = np.full((n, n), float("inf"))
+    np.fill_diagonal(matrix, 0.0)
+
+    for i, origin in enumerate(nodes):
+        lengths = nx.single_source_dijkstra_path_length(graph, origin, weight="length")
+        for j, dest in enumerate(nodes):
+            if i == j:
+                continue
+            if dest in targets and dest in lengths:
+                matrix[i, j] = lengths[dest]
+    return matrix
+
+
 def route_total_time(graph: nx.MultiDiGraph, route: list[int]) -> float:
     """Tiempo total (segundos) de recorrer `route` con el trafico actual."""
     if len(route) < 2:
@@ -133,6 +163,7 @@ def position_along_route(
     graph: nx.MultiDiGraph,
     route: list[int],
     elapsed_seconds: float,
+    dwell_checkpoints: list[tuple[float, float]] | None = None,
 ) -> tuple[float, float]:
     """(lat, lon) del punto donde va el repartidor tras `elapsed_seconds` sobre `route`.
 
@@ -140,6 +171,16 @@ def position_along_route(
     tiempo de viaje de esa arista — no es exacto sobre la geometria real de
     la calle (ignora la curvatura intermedia de OSM), pero es suficiente
     para mover un marcador en el mapa de forma continua y creible.
+
+    `dwell_checkpoints` = [(tiempo_fisico_acumulado_al_llegar, segundos_de_pausa), ...]
+    (ver `app.decision.batching.plan_backpack_route` / `_start_delivery`):
+    pausas de servicio (esperar la comida en el restaurante) que ocurren EN el
+    nodo donde se llega a esa marca de tiempo fisico, no acumuladas al final
+    de la ruta. Sin esto, `elapsed_seconds` (que incluye esas pausas via
+    `total_seconds`) simplemente se sale del presupuesto fisico de `route` y
+    el repartidor queda congelado en el ULTIMO nodo durante todo ese tiempo
+    de mas — un bug real que se veia como "se congela y luego sigue en otro
+    lado", facil de confundir con un teletransporte.
     """
     if not route:
         raise ValueError("route vacia")
@@ -147,8 +188,22 @@ def position_along_route(
         node = graph.nodes[route[0]]
         return float(node["y"]), float(node["x"])
 
+    checkpoints = sorted(dwell_checkpoints or [])
+    checkpoint_idx = 0
     remaining = elapsed_seconds
+    physical_elapsed = 0.0
+
     for u, v in zip(route[:-1], route[1:]):
+        # Cualquier pausa de servicio que ocurra al llegar a este nodo (antes
+        # de tomar la siguiente arista) se consume aqui, congelado en `u`.
+        while checkpoint_idx < len(checkpoints) and checkpoints[checkpoint_idx][0] <= physical_elapsed + 1e-6:
+            dwell = checkpoints[checkpoint_idx][1]
+            checkpoint_idx += 1
+            if remaining <= dwell:
+                node = graph.nodes[u]
+                return float(node["y"]), float(node["x"])
+            remaining -= dwell
+
         edge_time = min(d["travel_time"] for d in graph.get_edge_data(u, v).values())
         if not math.isfinite(edge_time):
             edge_time = 0.0
@@ -161,6 +216,7 @@ def position_along_route(
                 float(start["x"] + (end["x"] - start["x"]) * fraction),
             )
         remaining -= edge_time
+        physical_elapsed += edge_time
 
     last = graph.nodes[route[-1]]
     return float(last["y"]), float(last["x"])

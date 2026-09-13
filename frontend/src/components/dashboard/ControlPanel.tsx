@@ -54,6 +54,11 @@ export function ControlPanel() {
               ${simulation!.net_earnings.toFixed(2)} MXN
             </span>
           )}
+          {isActive && (
+            <span className="animate-fade-in rounded-full bg-dust/60 px-3 py-1 text-sm font-semibold tabular-nums tracking-[-0.01em] text-charcoal ring-1 ring-plum/10">
+              🎒 {t("control.backpack", { count: simulation!.active_deliveries, max: 2 })}
+            </span>
+          )}
         </div>
 
         {isActive ? (

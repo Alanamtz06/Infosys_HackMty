@@ -87,8 +87,37 @@ class ActiveDelivery:
     # `route` es la concatenacion de los dos tramos, y sin guardar el corte no
     # hay forma de saber despues en cual de las dos fases va el repartidor —
     # que es justo lo que el mapa pinta distinto (ver /simulation/route).
+    #
+    # Generalizado para la mochila (2 pedidos, ver `extra_order`): sigue
+    # siendo el indice/eta del PRIMER pickup que todavia falta por hacer en
+    # `route`, no necesariamente el de `order` — si `order` ya se recogio y
+    # el 2do pedido se fusiono despues, este pickup es el del 2do.
     pickup_index: int = 0
     to_pickup_seconds: float = 0.0
+
+    # Un 2do pedido aceptado mientras este ya iba en curso, fusionado en la
+    # MISMA entrega (ver api/routes/simulation.py::_merge_into_backpack) en
+    # vez de encolarse aparte — la mochila tiene capacidad 2, asi que nunca
+    # hace falta una 3ra entrada en `active_deliveries`. None = entrega
+    # normal de un solo pedido.
+    extra_order: dict | None = None
+    # Todas las paradas de la ruta combinada, en orden de visita — solo se
+    # llena cuando `extra_order` no es None. Cada entrada:
+    # {"order_id", "kind": "pickup"|"dropoff", "lat", "lon", "label",
+    # "eta_seconds"}. Usado para dibujar las 4 paradas en el mapa
+    # (`_stops_for_delivery`) y para saber donde termina realmente la ruta
+    # (`_next_free_position`), ya que el VRPTW puede terminar en el dropoff
+    # de cualquiera de los dos pedidos.
+    stop_markers: list[dict] = field(default_factory=list)
+
+    # Pausas de servicio (esperar la comida en cada pickup), en el punto
+    # FISICO real donde ocurren — no acumuladas al final de `route`. Sin
+    # esto, `position_along_route` se sale del presupuesto fisico de la ruta
+    # durante ese tiempo extra y el repartidor queda congelado en el ULTIMO
+    # nodo hasta que `total_seconds` termina de correr (se leia como un
+    # teletransporte: se congela, y "reaparece" avanzando mucho despues).
+    # [(tiempo_fisico_acumulado_al_llegar_al_pickup, segundos_de_pausa), ...]
+    dwell_checkpoints: list[tuple[float, float]] = field(default_factory=list)
 
     # Cache de geometria (coordenadas ya partidas para el mapa), calculada
     # UNA vez y reusada en cada poll de /simulation/state mientras dure esta
@@ -107,6 +136,9 @@ class ActiveDelivery:
             "started_sim_seconds": self.started_sim_seconds,
             "pickup_index": self.pickup_index,
             "to_pickup_seconds": self.to_pickup_seconds,
+            "extra_order": self.extra_order,
+            "stop_markers": self.stop_markers,
+            "dwell_checkpoints": self.dwell_checkpoints,
         }
 
     @classmethod
@@ -118,6 +150,9 @@ class ActiveDelivery:
             started_sim_seconds=data.get("started_sim_seconds"),
             pickup_index=data.get("pickup_index", 0),
             to_pickup_seconds=data.get("to_pickup_seconds", 0.0),
+            extra_order=data.get("extra_order"),
+            stop_markers=list(data.get("stop_markers") or []),
+            dwell_checkpoints=[tuple(c) for c in (data.get("dwell_checkpoints") or [])],
         )
 
 

@@ -4,7 +4,7 @@ import type { RouteStop } from "../types";
 import { translateStopLabel } from "./stopLabel";
 
 function stop(kind: RouteStop["kind"]): RouteStop {
-  return { kind, label: "backend english label — must be ignored", lat: 0, lon: 0, eta_minutes: 0 };
+  return { kind, label: "backend english label — must be ignored", lat: 0, lon: 0, eta_minutes: 0, order_id: null };
 }
 
 describe("translateStopLabel", () => {

@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     time_cost_per_minute: float = 1.50
     max_batch_orders: int = 3
 
+    # Mochila del repartidor: cuantos pedidos puede llevar encima a la vez.
+    max_active_deliveries: int = 2
+
+    # Modo estricto de la mochila (pedido 1 aun sin recoger, ver
+    # decision/batching.py::plan_backpack_route y
+    # api/routes/simulation.py::_fits_strict_corridor): que tan cerca deben
+    # quedar el pickup y el dropoff del 2do pedido de los del 1ro, como
+    # fraccion del propio trayecto del 1ro (pickup->dropoff). 0.4 = hasta 40%
+    # de esa distancia en cada punto.
+    backpack_strict_proximity_ratio: float = 0.4
+
     # Minutos que se van fuera de la carretera en cada pedido: esperar a que
     # el restaurante saque la comida + entregarla en la puerta. No estaba
     # modelado y es un costo real que cambia la decision: con ~8 minutos

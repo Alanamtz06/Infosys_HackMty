@@ -17,6 +17,7 @@ function order(overrides: Partial<PendingOrder> & { order_id: string; zone: stri
     time_cost: 15,
     score: 33.4,
     should_accept: true,
+    at_capacity: false,
     novice: { outcome: "accepted", score: 30, fare: 50, distance_km: 2, time_minutes: 10 },
     ...overrides,
   };

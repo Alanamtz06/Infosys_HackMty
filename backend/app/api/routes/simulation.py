@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import networkx as nx
+import osmnx as ox
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -161,7 +162,7 @@ def _courier_live_position(rt: ShiftRuntime) -> tuple[float, float] | None:
         if head.started_sim_seconds is not None:
             elapsed = world_clock.sim_elapsed_seconds() - head.started_sim_seconds
             try:
-                return position_along_route(rt.graph, head.route, elapsed)
+                return position_along_route(rt.graph, head.route, elapsed, head.dwell_checkpoints)
             except (ValueError, KeyError):
                 pass
     return rt.state.courier_position
@@ -172,8 +173,14 @@ def _next_free_position(rt: ShiftRuntime) -> tuple[float, float] | None:
     ultima entrega en cola. Es el origen correcto para evaluar una orden
     nueva (no donde esta parado ahora, que ya esta comprometido)."""
     if rt.state.active_deliveries:
-        last = rt.state.active_deliveries[-1].order
-        return (last["dropoff_lat"], last["dropoff_lon"])
+        last = rt.state.active_deliveries[-1]
+        if last.extra_order is not None:
+            # Mochila combinada: el VRPTW pudo haber elegido terminar en
+            # cualquiera de los dos dropoffs, no necesariamente el de
+            # `last.order` — la ultima parada real es la fuente de verdad.
+            final_stop = last.stop_markers[-1]
+            return (final_stop["lat"], final_stop["lon"])
+        return (last.order["dropoff_lat"], last.order["dropoff_lon"])
     return _courier_live_position(rt)
 
 
@@ -189,16 +196,231 @@ def _advance_deliveries(rt: ShiftRuntime) -> None:
         if now_s - head.started_sim_seconds < head.total_seconds:
             break
 
-        rt.state.courier_position = (head.order["dropoff_lat"], head.order["dropoff_lon"])
+        if head.extra_order is not None:
+            # Mochila combinada: la ruta pudo terminar en el dropoff de
+            # cualquiera de los dos pedidos — la ultima parada real manda.
+            final_stop = head.stop_markers[-1]
+            rt.state.courier_position = (final_stop["lat"], final_stop["lon"])
+            completed_orders = [head.order, head.extra_order]
+        else:
+            rt.state.courier_position = (head.order["dropoff_lat"], head.order["dropoff_lon"])
+            completed_orders = [head.order]
+
         rt.delivery_agent.position = rt.state.courier_position
-        rt.state.deliveries_completed += 1
+        rt.state.deliveries_completed += len(completed_orders)
         rt.state.active_deliveries.pop(0)
-        _log(
-            rt,
-            "order_accepted",
-            f"Delivered {head.order.get('pickup_name') or 'the order'} — "
-            f"{head.total_seconds / 60:.0f} min on the road.",
+        for order in completed_orders:
+            _log(
+                rt,
+                "order_accepted",
+                f"Delivered {order.get('pickup_name') or 'the order'} — "
+                f"{head.total_seconds / 60:.0f} min on the road.",
+            )
+
+
+def _is_picked_up(delivery: ActiveDelivery) -> bool:
+    """True si el repartidor ya paso por el pickup de `delivery.order` (el
+    tramo `to_pickup_seconds` ya se cumplio en tiempo simulado)."""
+    if delivery.started_sim_seconds is None:
+        return False
+    elapsed = world_clock.sim_elapsed_seconds() - delivery.started_sim_seconds
+    return elapsed >= delivery.to_pickup_seconds
+
+
+def _active_order_count(rt: ShiftRuntime) -> int:
+    """Pedidos en la mochila ahora mismo (0/1/2) — no confundir con
+    `len(active_deliveries)`, que a lo mas vale 1 (el 2do pedido se fusiona
+    en la misma entrega, ver `_merge_into_backpack`)."""
+    deliveries = rt.state.active_deliveries
+    if not deliveries:
+        return 0
+    return 2 if deliveries[0].extra_order is not None else 1
+
+
+def _fits_strict_corridor(active_order: dict, candidate_order: dict) -> bool:
+    """Modo estricto de la mochila (pedido activo AUN sin recoger): el 2do
+    pedido solo se considera "de paso" si su pickup queda cerca del pickup
+    del activo Y su dropoff queda cerca del dropoff del activo — rutas casi
+    paralelas. "Cerca" es proporcional al propio trayecto del pedido activo
+    (pickup->dropoff), no un radio fijo, para que se adapte a pedidos cortos
+    y largos por igual. Great-circle (no ruteo): esto corre en el tick, igual
+    que `order_generator._restaurants_near`."""
+    active_leg_km = (
+        ox.distance.great_circle(
+            active_order["pickup_lat"],
+            active_order["pickup_lon"],
+            active_order["dropoff_lat"],
+            active_order["dropoff_lon"],
         )
+        / 1000
+    )
+    threshold_km = settings.backpack_strict_proximity_ratio * active_leg_km
+
+    pickup_gap_km = (
+        ox.distance.great_circle(
+            candidate_order["pickup_lat"],
+            candidate_order["pickup_lon"],
+            active_order["pickup_lat"],
+            active_order["pickup_lon"],
+        )
+        / 1000
+    )
+    dropoff_gap_km = (
+        ox.distance.great_circle(
+            candidate_order["dropoff_lat"],
+            candidate_order["dropoff_lon"],
+            active_order["dropoff_lat"],
+            active_order["dropoff_lon"],
+        )
+        / 1000
+    )
+    return pickup_gap_km <= threshold_km and dropoff_gap_km <= threshold_km
+
+
+def _evaluate_backpack_candidate(
+    rt: ShiftRuntime, existing: ActiveDelivery, candidate_order: dict
+) -> OrderEvaluation | None:
+    """Costo-beneficio MARGINAL de aceptar `candidate_order` encima de
+    `existing`: la diferencia entre la ruta combinada optima (VRPTW) y lo que
+    ya costaria terminar `existing` solo. Un pickup genuinamente "de paso"
+    sale casi gratis (score alto); uno que obliga a desviarse sale caro
+    (score bajo o negativo) — este es el criterio multilateral pedido, ya que
+    el VRPTW optimiza conjuntamente el orden de TODAS las paradas."""
+    live_position = _courier_live_position(rt)
+    if live_position is None:
+        return None
+
+    picked_up = _is_picked_up(existing)
+    if picked_up:
+        alone_leg = try_shortest_route(rt.graph, live_position, (existing.order["dropoff_lat"], existing.order["dropoff_lon"]))
+        if alone_leg is None:
+            return None
+        alone_seconds = alone_leg[1] + settings.service_time_minutes * 60
+        alone_meters = alone_leg[2]
+    else:
+        to_pickup = try_shortest_route(rt.graph, live_position, (existing.order["pickup_lat"], existing.order["pickup_lon"]))
+        if to_pickup is None:
+            return None
+        to_dropoff = try_shortest_route(
+            rt.graph, (existing.order["pickup_lat"], existing.order["pickup_lon"]),
+            (existing.order["dropoff_lat"], existing.order["dropoff_lon"]),
+        )
+        if to_dropoff is None:
+            return None
+        alone_seconds = to_pickup[1] + to_dropoff[1] + settings.service_time_minutes * 60
+        alone_meters = to_pickup[2] + to_dropoff[2]
+
+    # include_route=False: solo puntuamos la oferta, no hace falta la ruta
+    # real todavia (eso se recalcula al aceptar, ver _merge_into_backpack) —
+    # esto evita las busquedas A* de mas que hacian el tick lento/se
+    # "congelaba" con varias ofertas pendientes (ver profile_backpack.py).
+    combined = batching.plan_backpack_route(
+        rt.graph, live_position, existing.order, picked_up, candidate_order, include_route=False
+    )
+    if combined is None:
+        return None
+
+    marginal_seconds = max(combined.total_seconds - alone_seconds, 0.0)
+    if combined.total_meters > 0:
+        marginal_meters = max(combined.total_meters - alone_meters, 0.0)
+    else:
+        # Sin ruta real (modo rapido) no hay distancia directa: se estima con
+        # la velocidad promedio ya medida en el tramo "solo" (mismo grafo,
+        # misma zona) en vez de pagar otra bateria de busquedas de ruta solo
+        # para convertir tiempo a metros.
+        avg_speed_m_per_s = alone_meters / alone_seconds if alone_seconds > 0 else 0.0
+        marginal_meters = max(marginal_seconds * avg_speed_m_per_s, 0.0)
+
+    return OrderEvaluation(
+        fare=candidate_order["fare"],
+        distance_km=marginal_meters / 1000,
+        time_minutes=marginal_seconds / 60,
+        vehicle=VehicleType(rt.state.vehicle),
+    )
+
+
+def _is_backpack_marginal_eligible(rt: ShiftRuntime, order: dict) -> bool:
+    """True si `order` calificaria para el costo-beneficio MARGINAL de
+    mochila (VRPTW) en vez de la evaluacion normal: hay exactamente 1 pedido
+    activo sin fusionar todavia, y o ya se recogio (modo normal) o el
+    candidato pasa el filtro geografico estricto (modo estricto, ver
+    `_fits_strict_corridor`)."""
+    deliveries = rt.state.active_deliveries
+    if not (len(deliveries) == 1 and deliveries[0].extra_order is None):
+        return False
+    existing = deliveries[0]
+    return _is_picked_up(existing) or _fits_strict_corridor(existing.order, order)
+
+
+def _evaluate_order_for_offer(rt: ShiftRuntime, order: dict) -> OrderEvaluation | None:
+    """Punto unico de evaluacion de una oferta (nueva o reevaluada): decide
+    si aplica el costo marginal de mochila (1 pedido activo, sin extra
+    todavia) o la evaluacion de siempre (mochila vacia o ya llena)."""
+    deliveries = rt.state.active_deliveries
+    if len(deliveries) == 1 and deliveries[0].extra_order is None:
+        existing = deliveries[0]
+        if _is_backpack_marginal_eligible(rt, order):
+            try:
+                evaluation = _evaluate_backpack_candidate(rt, existing, order)
+            except Exception:
+                # El costo marginal es un VRPTW sobre el grafo real — nunca
+                # debe tumbar el tick por una falla del solver (mismo
+                # criterio que `_log_batching_insight`).
+                evaluation = None
+            if evaluation is not None:
+                return evaluation
+        # Modo estricto sin corredor, o el plan combinado resulto infactible
+        # (p. ej. un cierre de calle a mitad de ruta): se cotiza como un
+        # pedido totalmente aparte, parado desde donde esta AHORA el
+        # repartidor — sin credito por compartir ruta con el pedido activo,
+        # lo cual naturalmente sale caro y desalienta aceptarlo (el humano
+        # sigue pudiendo forzarlo).
+        return rt.delivery_agent.evaluate_order(
+            (order["pickup_lat"], order["pickup_lon"]),
+            (order["dropoff_lat"], order["dropoff_lon"]),
+            order["fare"],
+            origin=_courier_live_position(rt),
+        )
+
+    origin = _next_free_position(rt)
+    return rt.delivery_agent.evaluate_order(
+        (order["pickup_lat"], order["pickup_lon"]),
+        (order["dropoff_lat"], order["dropoff_lon"]),
+        order["fare"],
+        origin=origin,
+    )
+
+
+def _merge_into_backpack(rt: ShiftRuntime, candidate_order: dict) -> None:
+    """Fusiona `candidate_order` en la entrega activa unica, reemplazandola
+    por una ruta combinada real (VRPTW + calles reales). Nunca se agrega una
+    2da entrada a `active_deliveries` — la mochila tiene capacidad 2 y cabe
+    entera en la entrega que ya existe."""
+    existing = rt.state.active_deliveries[0]
+    live_position = _courier_live_position(rt) or (
+        existing.order["pickup_lat"],
+        existing.order["pickup_lon"],
+    )
+    picked_up = _is_picked_up(existing)
+
+    try:
+        plan = batching.plan_backpack_route(rt.graph, live_position, existing.order, picked_up, candidate_order)
+    except Exception:
+        plan = None
+    if plan is None:
+        raise HTTPException(409, "No route available to combine this order with your current delivery")
+
+    rt.state.active_deliveries[0] = ActiveDelivery(
+        order=existing.order,
+        extra_order=candidate_order,
+        route=plan.route,
+        total_seconds=plan.total_seconds,
+        started_sim_seconds=world_clock.sim_elapsed_seconds(),
+        pickup_index=plan.pickup_index,
+        to_pickup_seconds=plan.to_pickup_seconds,
+        stop_markers=plan.stop_markers,
+        dwell_checkpoints=plan.dwell_checkpoints,
+    )
 
 
 def _tick(rt: ShiftRuntime, db: Session) -> None:
@@ -279,18 +501,26 @@ def _revalue_pending_orders(rt: ShiftRuntime) -> None:
     state.last_revaluation_sim_minute = now_sim_minutes
     state.last_revaluation_context = context
 
-    origin = _next_free_position(rt)
     unreachable: list[str] = []
 
     for order_id, pending in state.pending_orders.items():
         order = pending.order
+        if _is_backpack_marginal_eligible(rt, order):
+            # El costo marginal de mochila es un VRPTW + varias busquedas de
+            # ruta reales sobre el grafo COMPLETO (~29k nodos en la ZMM): un
+            # solo calculo cuesta 2-4s medido en produccion (profile_backpack.py).
+            # Recalcularlo aqui para cada oferta pendiente, en cada ciclo de
+            # reevaluacion, fue lo que "congelaba" el motor de generacion de
+            # ordenes (un solo tick podia tardar >10s con varias ofertas
+            # pendientes). Se calcula UNA vez al generar la oferta
+            # (`_generate_and_evaluate_order`) y se deja congelado hasta que
+            # se acepte/rechace o cambie de modo (estricto -> normal al
+            # recoger el pedido activo, que si dispara un recalculo nuevo la
+            # primera vez que dejes de calificar aqui).
+            continue
+
         previous_score = pending.evaluation.score
-        evaluation = rt.delivery_agent.evaluate_order(
-            (order["pickup_lat"], order["pickup_lon"]),
-            (order["dropoff_lat"], order["dropoff_lon"]),
-            order["fare"],
-            origin=origin,
-        )
+        evaluation = _evaluate_order_for_offer(rt, order)
         if evaluation is None:
             unreachable.append(order_id)
             continue
@@ -337,19 +567,13 @@ def _generate_and_evaluate_order(rt: ShiftRuntime, db: Session, virtual_hour: fl
     guarda nada y simplemente no llega esa oferta.
     """
     state = rt.state
-    origin = _next_free_position(rt)
     # La oferta se sesga a la ZONA del turno, no a donde esta el inteligente:
     # ver el comentario de `zone_center` en session_state.py.
     order = generate_order(
         rt.graph, rt.restaurants, virtual_hour=virtual_hour, near_point=state.zone_center
     )
 
-    evaluation = rt.delivery_agent.evaluate_order(
-        (order["pickup_lat"], order["pickup_lon"]),
-        (order["dropoff_lat"], order["dropoff_lon"]),
-        order["fare"],
-        origin=origin,
-    )
+    evaluation = _evaluate_order_for_offer(rt, order)
     if evaluation is None:
         return False
 
@@ -467,6 +691,9 @@ def _settle_order(rt: ShiftRuntime, db: Session, order_id: str, accept: bool) ->
     de una decision explicita del conductor via /simulation/decide, para que
     no se dupliquen las reglas del dinero."""
     state = rt.state
+    if accept and _active_order_count(rt) >= settings.max_active_deliveries:
+        raise HTTPException(409, "Backpack is full (2/2) — deliver one before accepting another.")
+
     pending = state.pending_orders.pop(order_id, None)
     if pending is None:
         raise HTTPException(404, "That order is no longer pending")
@@ -479,7 +706,10 @@ def _settle_order(rt: ShiftRuntime, db: Session, order_id: str, accept: bool) ->
 
     if accept:
         state.orders_accepted += 1
-        _start_delivery(rt, pending.order)
+        if state.active_deliveries and state.active_deliveries[0].extra_order is None:
+            _merge_into_backpack(rt, pending.order)
+        else:
+            _start_delivery(rt, pending.order)
 
     db.add(
         TripRecord(
@@ -540,6 +770,9 @@ def _start_delivery(rt: ShiftRuntime, order: dict) -> None:
             # que un indice sobre ella quedaria desfasado.
             pickup_index=len(to_pickup[0]) - 1,
             to_pickup_seconds=to_pickup[1],
+            # La pausa de servicio ocurre AL LLEGAR al pickup (esperando la
+            # comida), no al final de la ruta — ver position_along_route.
+            dwell_checkpoints=[(to_pickup[1], settings.service_time_minutes * 60)],
         )
     )
 
@@ -647,6 +880,31 @@ def _stops_for(
     ]
 
 
+def _stops_for_delivery(delivery: ActiveDelivery, origin: tuple[float, float]) -> list[RouteStopOut]:
+    """Las paradas de una entrega EN CURSO, en orden de visita — delega en
+    `_stops_for` para el caso normal (1 pedido); para una mochila combinada
+    (2 pedidos) arma la lista completa a partir de `stop_markers`."""
+    if delivery.extra_order is None:
+        return _stops_for(delivery.order, origin, delivery.to_pickup_seconds / 60, delivery.total_seconds / 60)
+
+    stops = [
+        RouteStopOut(kind="courier", label="You are here", lat=origin[0], lon=origin[1], eta_minutes=0.0)
+    ]
+    for marker in delivery.stop_markers:
+        default_label = "Pick up the order" if marker["kind"] == "pickup" else "Drop off to the customer"
+        stops.append(
+            RouteStopOut(
+                kind=marker["kind"],
+                label=marker["label"] or default_label,
+                lat=marker["lat"],
+                lon=marker["lon"],
+                eta_minutes=round(marker["eta_seconds"] / 60, 1),
+                order_id=marker["order_id"],
+            )
+        )
+    return stops
+
+
 def _to_active_routes(rt: ShiftRuntime) -> list[ActiveRouteOut]:
     """Las entregas en curso con su geometria y el avance real encima de ella.
 
@@ -675,7 +933,7 @@ def _to_active_routes(rt: ShiftRuntime) -> list[ActiveRouteOut]:
             elapsed = max(now_s - delivery.started_sim_seconds, 0.0)
 
         try:
-            lat, lon = position_along_route(rt.graph, delivery.route, elapsed)
+            lat, lon = position_along_route(rt.graph, delivery.route, elapsed, delivery.dwell_checkpoints)
         except (ValueError, KeyError):
             lon, lat = coords[0]
 
@@ -683,25 +941,22 @@ def _to_active_routes(rt: ShiftRuntime) -> list[ActiveRouteOut]:
         progress = min(elapsed / total, 1.0) if total > 0 else 1.0
         origin = (coords[0][1], coords[0][0])
 
+        fare = delivery.order["fare"] + (delivery.extra_order["fare"] if delivery.extra_order else 0)
         routes.append(
             ActiveRouteOut(
                 order_id=delivery.order["id"],
                 pickup_name=delivery.order.get("pickup_name"),
                 coordinates=coords,
                 pickup_index=pickup_idx,
-                stops=_stops_for(
-                    delivery.order,
-                    origin,
-                    delivery.to_pickup_seconds / 60,
-                    total / 60,
-                ),
+                stops=_stops_for_delivery(delivery, origin),
                 progress=round(progress, 4),
                 phase="to_pickup" if elapsed < delivery.to_pickup_seconds else "to_dropoff",
                 courier_lat=lat,
                 courier_lon=lon,
                 eta_minutes=round(max(total - elapsed, 0.0) / 60, 1),
-                fare=delivery.order["fare"],
+                fare=fare,
                 is_current=i == 0,
+                extra_pickup_name=delivery.extra_order.get("pickup_name") if delivery.extra_order else None,
             )
         )
 
@@ -739,6 +994,7 @@ def _to_pending_out(rt: ShiftRuntime, order_id: str, pending: PendingOrder) -> P
         time_cost=evaluation.time_minutes * settings.time_cost_per_minute,
         score=evaluation.score,
         should_accept=_agent_recommendation(rt, evaluation),
+        at_capacity=_active_order_count(rt) >= settings.max_active_deliveries,
         novice=NoviceOutcomeOut(**novice_outcome),
     )
 
@@ -761,7 +1017,7 @@ def _to_state(rt: ShiftRuntime) -> SimulationState:
         time_acceleration=world_clock.acceleration,
         courier_lat=position[0] if position else None,
         courier_lon=position[1] if position else None,
-        active_deliveries=len(state.active_deliveries),
+        active_deliveries=_active_order_count(rt),
         deliveries_completed=state.deliveries_completed,
         active_routes=_to_active_routes(rt),
         orders_accepted=state.orders_accepted,

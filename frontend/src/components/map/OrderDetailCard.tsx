@@ -175,10 +175,16 @@ export function OrderDetailCard({ order, route, loading, error, deciding, onAcce
         )}
       </div>
 
+      {order.at_capacity && (
+        <p className="mt-3 rounded-xl bg-dust/40 px-3 py-2 text-[11px] leading-snug text-charcoal/70">
+          🎒 {t("orderDetail.backpackFull")}
+        </p>
+      )}
+
       <div className="mt-4 flex items-center gap-2">
         <button
           onClick={onAccept}
-          disabled={deciding}
+          disabled={deciding || order.at_capacity}
           className="group flex flex-1 items-center justify-between gap-2 rounded-full bg-plum py-1.5 pl-4 pr-1.5 text-xs font-medium text-paper shadow-[0_6px_16px_-6px_rgba(104,73,89,0.9)] transition duration-300 ease-out hover:bg-ink active:scale-[0.98] disabled:opacity-50"
         >
           {deciding ? t("orderDetail.accepting") : t("orderDetail.accept")}

@@ -36,6 +36,10 @@ class PendingOrderOut(BaseModel):
     time_cost: float
     score: float
     should_accept: bool
+    # True si la mochila del repartidor ya tiene 2 pedidos: esta oferta no se
+    # puede aceptar sin importar el score (distinto de "no conviene" —
+    # OrderDetailCard.tsx debe leerse diferente en cada caso).
+    at_capacity: bool
     # Veredicto del novato sobre la MISMA orden — la comparacion lado a lado
     # del panel de ofertas se arma con esto, no con una simulacion aparte.
     novice: NoviceOutcomeOut
@@ -51,6 +55,11 @@ class RouteStopOut(BaseModel):
     # Minutos (simulados) desde el inicio de la ruta hasta llegar aqui. Para
     # el punto de partida es 0.
     eta_minutes: float
+    # A que pedido pertenece esta parada — None para "courier" y para las
+    # rutas de un solo pedido. Necesario cuando una entrega de mochila (2
+    # pedidos) tiene 2 pickups/2 dropoffs, para poder distinguirlos en el
+    # mapa (ver MapView.tsx).
+    order_id: str | None = None
 
 
 class RouteLegOut(BaseModel):
@@ -103,6 +112,10 @@ class ActiveRouteOut(BaseModel):
     # True solo para la entrega que el repartidor esta cursando ahora; las
     # demas estan encoladas y todavia no arrancan.
     is_current: bool
+    # Nombre del restaurante del 2do pedido, solo cuando esta entrega es una
+    # mochila combinada (2 pedidos en una sola ruta) — None en el caso normal
+    # de un solo pedido.
+    extra_pickup_name: str | None = None
 
 
 class SimEventOut(BaseModel):
@@ -136,6 +149,9 @@ class SimulationState(BaseModel):
     # reemplazar PLACEHOLDER_RIDER_POSITION en MapView.tsx.
     courier_lat: float | None
     courier_lon: float | None
+    # Pedidos en la mochila del repartidor ahora mismo (0/1/2) — NO es el
+    # numero de entradas en la cola interna (que a lo mas tiene 1: un 2do
+    # pedido aceptado se fusiona en la misma entrega, ver _merge_into_backpack).
     active_deliveries: int
     deliveries_completed: int
 
