@@ -58,7 +58,7 @@ export default function App() {
 
           <div className="flex items-center gap-1 rounded-full bg-paper/60 p-1 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl">
             <VirtualClock virtualHour={virtualHour} />
-            
+
             {isActive && (
               <>
                 <div className="mx-1 h-4 w-[1px] bg-plum/15" />
@@ -66,8 +66,8 @@ export default function App() {
                   ${simulation!.net_earnings.toFixed(2)} MXN
                 </span>
                 <div className="mx-1 h-4 w-[1px] bg-plum/15" />
-                <span className="animate-fade-in px-1 text-[13px] font-semibold tabular-nums tracking-[-0.01em] text-charcoal">
-                  🎒 {t("control.backpack", { count: simulation!.active_deliveries, max: 2 })}
+                <span className="animate-fade-in px-1 text-[13px] font-semibold tabular-nums tracking-[-0.01em] text-plum">
+                  {t("control.backpack", { count: simulation!.active_deliveries, max: 2 })}
                 </span>
               </>
             )}
@@ -86,31 +86,31 @@ export default function App() {
               riel opaco, mismo lenguaje que los paneles del mapa. */}
           <nav className="flex gap-1 rounded-full bg-paper/60 p-1 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl">
             <NavButton active={view === "simulation"} onClick={() => setView("simulation")}>
-            {t("nav.simulation")}
-          </NavButton>
-          <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")}>
-            {t("nav.dashboard")}
-          </NavButton>
-          <NavButton active={view === "profile"} onClick={() => setView("profile")}>
-            {t("nav.profile")}
-          </NavButton>
-        </nav>
+              {t("nav.simulation")}
+            </NavButton>
+            <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")}>
+              {t("nav.dashboard")}
+            </NavButton>
+            <NavButton active={view === "profile"} onClick={() => setView("profile")}>
+              {t("nav.profile")}
+            </NavButton>
+          </nav>
 
-        <LanguageToggle language={language} onChange={setLanguage} />
+          <LanguageToggle language={language} onChange={setLanguage} />
 
-        <button
-          onClick={() => setUser(null)}
-          title={t("nav.logout", { username: user.username })}
-          className="flex h-9 w-9 items-center justify-center rounded-full bg-paper/70 text-charcoal/70 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl transition duration-300 ease-out hover:bg-paper hover:text-plum hover:ring-plum/25 active:scale-95"
-        >
-          {/* Trazo fino: el grosor 2 de los sets por defecto se ve tosco al
+          <button
+            onClick={() => setUser(null)}
+            title={t("nav.logout", { username: user.username })}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-paper/70 text-charcoal/70 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl transition duration-300 ease-out hover:bg-paper hover:text-plum hover:ring-plum/25 active:scale-95"
+          >
+            {/* Trazo fino: el grosor 2 de los sets por defecto se ve tosco al
               lado de los glifos del mapa, que van a 1.5. */}
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-            <path d="M16 17l5-5-5-5" />
-            <path d="M21 12H9" />
-          </svg>
-        </button>
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <path d="M16 17l5-5-5-5" />
+              <path d="M21 12H9" />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -140,11 +140,10 @@ function NavButton({
     <button
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition duration-300 ease-out active:scale-[0.97] ${
-        active
+      className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition duration-300 ease-out active:scale-[0.97] ${active
           ? "bg-plum text-paper shadow-[0_6px_16px_-8px_rgba(104,73,89,0.9)]"
           : "text-charcoal/75 hover:bg-blush/45 hover:text-ink"
-      }`}
+        }`}
     >
       {children}
     </button>
@@ -169,9 +168,8 @@ function LanguageToggle({ language, onChange }: { language: Language; onChange: 
           key={code}
           onClick={() => onChange(code)}
           aria-pressed={language === code}
-          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition duration-300 ease-out active:scale-[0.95] ${
-            language === code ? "bg-plum text-paper" : "text-charcoal/60 hover:bg-blush/45 hover:text-ink"
-          }`}
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition duration-300 ease-out active:scale-[0.95] ${language === code ? "bg-plum text-paper" : "text-charcoal/60 hover:bg-blush/45 hover:text-ink"
+            }`}
         >
           {code}
         </button>
