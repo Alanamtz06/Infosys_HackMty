@@ -126,10 +126,10 @@ export interface User {
 export interface LiveDashboardSummary {
   agent_type: AgentType;
   vehicle: VehicleType;
-  trips_last_5min: number;
-  accepted_last_5min: number;
-  net_score_last_5min: number;
-  avg_score_last_5min: number;
+  trips: number;
+  accepted: number;
+  net_score: number;
+  avg_score: number;
 }
 
 export interface LiveTrip {
@@ -150,6 +150,7 @@ export interface LiveTrip {
 }
 
 export interface LiveDashboardResponse {
+  is_active: boolean;
   summary: LiveDashboardSummary[];
   recent_trips: LiveTrip[];
 }

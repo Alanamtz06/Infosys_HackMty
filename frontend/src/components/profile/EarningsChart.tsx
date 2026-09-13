@@ -9,6 +9,10 @@ interface Props {
 }
 
 function formatDate(iso: string, locale: string): string {
+  if (iso.includes("T")) {
+    const d = new Date(iso);
+    return new Intl.DateTimeFormat(locale, { hour: "numeric" }).format(d);
+  }
   // `T00:00:00` fija la hora a mediodia local... en realidad a medianoche,
   // pero evita que `new Date("2026-01-01")` (que Date.parse interpreta como
   // UTC medianoche) se corra un dia hacia atras en husos horarios negativos

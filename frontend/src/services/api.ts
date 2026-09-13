@@ -13,6 +13,14 @@ export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:8000",
 });
 
+api.interceptors.request.use((config) => {
+  if (config.method?.toLowerCase() === 'get') {
+    config.params = config.params || {};
+    config.params._t = Date.now();
+  }
+  return config;
+});
+
 export const simulationApi = {
   start: (payload: { user_id?: string; vehicle: VehicleType }) =>
     api.post<SimulationState>("/simulation/start", payload),

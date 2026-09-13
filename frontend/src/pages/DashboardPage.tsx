@@ -101,6 +101,8 @@ function SummaryGrid({ data, loading }: { data: LiveDashboardResponse | null; lo
   const { t } = useTranslation();
   const rows = data?.summary ?? [];
 
+  const isActive = data?.is_active ?? false;
+
   if (loading && rows.length === 0) return <SummarySkeleton />;
 
   if (rows.length === 0) {
@@ -126,13 +128,13 @@ function SummaryGrid({ data, loading }: { data: LiveDashboardResponse | null; lo
     // los dos pesan lo mismo.
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {rows.map((row, i) => (
-        <SummaryCard key={`${row.agent_type}-${row.vehicle}`} row={row} index={i} />
+        <SummaryCard key={`${row.agent_type}-${row.vehicle}`} row={row} index={i} isActive={isActive} />
       ))}
     </div>
   );
 }
 
-function SummaryCard({ row, index }: { row: LiveDashboardSummary; index: number }) {
+function SummaryCard({ row, index, isActive }: { row: LiveDashboardSummary; index: number; isActive: boolean }) {
   const { t } = useTranslation();
   const isSmart = row.agent_type === "inteligente";
 
@@ -156,15 +158,15 @@ function SummaryCard({ row, index }: { row: LiveDashboardSummary; index: number 
               isSmart ? "bg-plum text-paper" : "bg-dust/50 text-charcoal/65"
             }`}
           >
-            {t("dashboard.summary.fiveMin")}
+            {isActive ? t("dashboard.summary.currentShift") : t("dashboard.summary.pastShift")}
           </span>
         </div>
 
         <div className={`mt-3 grid gap-3 ${isSmart ? "grid-cols-4" : "grid-cols-2"}`}>
-          <Stat label={t("dashboard.summary.trips")} value={row.trips_last_5min.toString()} />
-          <Stat label={t("dashboard.summary.accepted")} value={row.accepted_last_5min.toString()} />
-          <Stat label={t("dashboard.summary.netScore")} value={`$${row.net_score_last_5min.toFixed(2)}`} accent />
-          <Stat label={t("dashboard.summary.avg")} value={`$${row.avg_score_last_5min.toFixed(2)}`} />
+          <Stat label={t("dashboard.summary.trips")} value={row.trips.toString()} />
+          <Stat label={t("dashboard.summary.accepted")} value={row.accepted.toString()} />
+          <Stat label={t("dashboard.summary.netScore")} value={`$${row.net_score.toFixed(2)}`} accent />
+          <Stat label={t("dashboard.summary.avg")} value={`$${row.avg_score.toFixed(2)}`} />
         </div>
       </div>
     </article>
@@ -196,26 +198,31 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
  */
 function TrendsSection() {
   const { t } = useTranslation();
-  const [period, setPeriod] = useState("1_mes");
+  const [period, setPeriod] = useState("dia");
   const [history, setHistory] = useState<HistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    statsApi
-      .getHistory(period)
-      .then(({ data }) => {
+
+    async function poll() {
+      try {
+        const { data } = await statsApi.getHistory(period);
         if (!cancelled) setHistory(data);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setHistory(null);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    }
+
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [period]);
 
