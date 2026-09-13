@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useDraggableWidget } from "../../hooks/useDraggableWidget";
 import { useTranslation } from "../../i18n/useTranslation";
@@ -12,6 +12,7 @@ interface Props {
   width?: string;
   children: ReactNode;
   headerRight?: ReactNode;
+  avoidElementId?: string;
 }
 
 /**
@@ -25,14 +26,59 @@ interface Props {
  * `toggleWidget(id)` — este componente no dibuja su propio affordance de
  * reapertura porque, cerrado, no hay nada en pantalla sobre lo cual pintarlo.
  */
-export function DraggableWidget({ id, title, anchorClassName, width, children, headerRight }: Props) {
+export function DraggableWidget({ id, title, anchorClassName, width, children, headerRight, avoidElementId }: Props) {
   const { dx, dy, open, close, dragHandleProps } = useDraggableWidget(id);
   const { t } = useTranslation();
+
+  const [maxContentHeight, setMaxContentHeight] = useState<number | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!avoidElementId) return;
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateMaxHeight = () => {
+      const obstacle = document.getElementById(avoidElementId);
+      if (!obstacle) {
+        setMaxContentHeight(undefined);
+        return;
+      }
+
+      const rect = el.getBoundingClientRect();
+      const obstacleRect = obstacle.getBoundingClientRect();
+
+      const overlapsHorizontally = rect.left < obstacleRect.right + 16 && rect.right > obstacleRect.left - 16;
+
+      if (overlapsHorizontally) {
+        const minAllowedTop = obstacleRect.bottom + 16;
+        const maxWHeight = rect.bottom - minAllowedTop;
+        
+        // Subtract header (~45px) and padding (~12px top + 12px bottom)
+        const chromeHeight = 70;
+        const contentH = maxWHeight - chromeHeight;
+        
+        setMaxContentHeight(contentH > 50 ? contentH : 50);
+      } else {
+        setMaxContentHeight(undefined);
+      }
+    };
+
+    updateMaxHeight();
+
+    const resizeObserver = new ResizeObserver(updateMaxHeight);
+    resizeObserver.observe(document.body);
+    const obstacle = document.getElementById(avoidElementId);
+    if (obstacle) resizeObserver.observe(obstacle);
+
+    return () => resizeObserver.disconnect();
+  }, [dx, dy, avoidElementId]);
 
   if (!open) return null;
 
   return (
     <div
+      ref={containerRef}
       className={`pointer-events-auto absolute z-panel ${anchorClassName} ${width ?? "w-[20.5rem]"} max-w-[calc(100vw-2rem)]`}
       style={{ transform: `translate3d(${dx}px, ${dy}px, 0)` }}
     >
@@ -61,7 +107,11 @@ export function DraggableWidget({ id, title, anchorClassName, width, children, h
             </div>
           </header>
 
-          {children}
+          <div 
+            style={{ "--dynamic-max-height": maxContentHeight ? `${maxContentHeight}px` : "100vh" } as React.CSSProperties}
+          >
+            {children}
+          </div>
         </div>
       </div>
     </div>

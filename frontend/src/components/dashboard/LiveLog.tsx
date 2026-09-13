@@ -44,7 +44,10 @@ export function LiveLog() {
         </span>
       }
     >
-      <div className="flex max-h-[calc(100vh-14rem)] min-h-0 flex-col">
+      <div 
+        className="flex min-h-0 flex-col"
+        style={{ maxHeight: "min(calc(100vh - 14rem), var(--dynamic-max-height))" }}
+      >
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 pb-3 pt-1">
           {events.length === 0 ? (
             <p className="text-[11px] leading-snug text-charcoal/55">{t("liveLog.empty")}</p>

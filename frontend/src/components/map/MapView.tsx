@@ -201,12 +201,14 @@ export function MapView() {
     lastZoomedOrderId.current = selectedOrderId;
     const { clientWidth: width, clientHeight: height } = map.getContainer();
     map.stop();
-    safeFitBounds(map, bounds, {
-      padding: safePadding(width, height),
-      duration: reducedMotion ? 0 : 1000,
-      easing: easeOutCubic,
-      maxZoom: 14.5,
-    });
+    setTimeout(() => {
+      safeFitBounds(map, bounds, {
+        padding: safePadding(width, height),
+        duration: reducedMotion ? 0 : 1000,
+        easing: easeOutCubic,
+        maxZoom: 14.5,
+      });
+    }, 50);
   }, [selectedOrderId, selectedOrder, reducedMotion]);
 
   // Encuadra la ruta completa (preview) cuando llega — efecto separado del
@@ -224,12 +226,14 @@ export function MapView() {
 
     const { clientWidth: width, clientHeight: height } = map.getContainer();
     map.stop();
-    safeFitBounds(map, bounds, {
-      padding: safePadding(width, height),
-      duration: reducedMotion ? 0 : 1000,
-      easing: easeOutCubic,
-      maxZoom: 15.5,
-    });
+    setTimeout(() => {
+      safeFitBounds(map, bounds, {
+        padding: safePadding(width, height),
+        duration: reducedMotion ? 0 : 1000,
+        easing: easeOutCubic,
+        maxZoom: 15.5,
+      });
+    }, 50);
   }, [preview, reducedMotion]);
 
   // --- Vehiculo fantasma sobre la ruta propuesta --------------------------

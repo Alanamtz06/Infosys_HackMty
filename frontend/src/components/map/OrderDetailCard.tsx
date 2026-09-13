@@ -69,7 +69,10 @@ export function OrderDetailCard({ order, route, loading, error, previewEnabled, 
   const novice = order.novice;
 
   return (
-    <div className="p-4 max-h-[60vh] overflow-y-auto">
+    <div 
+      className="p-4 overflow-y-auto"
+      style={{ maxHeight: "min(60vh, var(--dynamic-max-height))" }}
+    >
       <button
         onClick={onBack}
         className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.2em] text-plum/70 transition duration-200 ease-out hover:text-plum"
