@@ -76,7 +76,7 @@ export function StopMarker({ stop, index, detailed = false, delayMs = 0, dimmed 
   return (
     <Marker latitude={stop.lat} longitude={stop.lon}>
       <div
-        className={`animate-pop-in flex flex-col items-center transition-opacity duration-300 ease-out ${
+        className={`animate-pop-in flex flex-col items-center font-sans transition-opacity duration-300 ease-out ${
           dimmed ? "opacity-45" : "opacity-100"
         }`}
         style={{ animationDelay: `${delayMs}ms` }}

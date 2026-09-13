@@ -44,7 +44,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String)
     vehicle_type: Mapped[str] = mapped_column(String, default="moto", server_default="moto")  # "moto" | "auto"
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()")
     )
 
 
@@ -78,7 +78,7 @@ class SimulationRun(Base):
     real_duration_minutes: Mapped[float] = mapped_column(Float)
 
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()")
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_finished: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
@@ -110,7 +110,7 @@ class Order(Base):
 
     fare: Mapped[float] = mapped_column(Float)
     generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()")
     )
 
 
@@ -136,7 +136,7 @@ class TripRecord(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()"), primary_key=True
+        DateTime(timezone=True), server_default=text("now()"), primary_key=True
     )
 
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("simulation_runs.id"), index=True)
@@ -171,7 +171,7 @@ class DecisionAudit(Base):
     explanation: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String, default="gemini-flash-latest", server_default="gemini-flash-latest")
     generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()")
     )
 
 
@@ -189,5 +189,5 @@ class AgentQValue(Base):
     action: Mapped[str] = mapped_column(String, primary_key=True)  # zona vecina
     q_value: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0.0"))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, server_default=text("now()")
+        DateTime(timezone=True), server_default=text("now()")
     )

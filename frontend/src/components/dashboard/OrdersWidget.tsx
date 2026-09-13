@@ -9,9 +9,11 @@ interface Props {
   route: RoutePreview | null;
   loadingRoute: boolean;
   routeError: string | null;
+  previewEnabled: boolean;
   deciding: boolean;
   onAccept: () => void;
   onReject: () => void;
+  onPreviewRoute: () => void;
 }
 
 function NoviceCell({ order }: { order: PendingOrder }) {
@@ -43,9 +45,8 @@ function SmartCell({ order }: { order: PendingOrder }) {
 
   return (
     <div
-      className={`rounded-xl px-2 py-1.5 text-center transition duration-300 ease-out ${
-        order.should_accept ? "bg-plum/90" : "bg-charcoal/15"
-      }`}
+      className={`rounded-xl px-2 py-1.5 text-center transition duration-300 ease-out ${order.should_accept ? "bg-plum/90" : "bg-charcoal/15"
+        }`}
     >
       <div
         className={`text-[9px] uppercase tracking-[0.12em] ${order.should_accept ? "text-paper/70" : "text-charcoal/50"}`}
@@ -53,9 +54,8 @@ function SmartCell({ order }: { order: PendingOrder }) {
         {t("orders.col.smart")}
       </div>
       <div
-        className={`text-[13px] font-semibold tabular-nums ${
-          order.should_accept ? "text-paper" : worthIt ? "text-ink" : "text-charcoal/70"
-        }`}
+        className={`text-[13px] font-semibold tabular-nums ${order.should_accept ? "text-paper" : worthIt ? "text-ink" : "text-charcoal/70"
+          }`}
       >
         ${order.score.toFixed(0)}
       </div>
@@ -79,11 +79,10 @@ function OrderRow({
       <button
         onClick={onSelect}
         aria-pressed={selected}
-        className={`animate-fade-up group flex w-full flex-col gap-1.5 rounded-[1.05rem] px-2.5 py-2 text-left transition duration-300 ease-out ${
-          selected
-            ? "bg-paper shadow-[0_6px_18px_-10px_rgba(104,73,89,0.7)] ring-1 ring-plum/25"
-            : "ring-1 ring-transparent hover:bg-paper/70 hover:ring-plum/10"
-        }`}
+        className={`animate-fade-up group flex w-full flex-col gap-1.5 rounded-[1.05rem] px-2.5 py-2 text-left transition duration-300 ease-out ${selected
+          ? "bg-paper shadow-[0_6px_18px_-10px_rgba(104,73,89,0.7)] ring-1 ring-plum/25"
+          : "ring-1 ring-transparent hover:bg-paper/70 hover:ring-plum/10"
+          }`}
         style={{ animationDelay: `${index * 55}ms` }}
       >
         <div className="flex items-center justify-between gap-2">
@@ -144,7 +143,7 @@ function EmptyState() {
  * la izquierda, y esta lista abajo a la izquierda; en una ventana baja las
  * dos podian tocarse).
  */
-export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAccept, onReject }: Props) {
+export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, deciding, onAccept, onReject, onPreviewRoute }: Props) {
   const { t } = useTranslation();
   const simulation = useAppStore((s) => s.simulation);
   const selectedOrderId = useAppStore((s) => s.selectedOrderId);
@@ -165,7 +164,7 @@ export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAcce
     <DraggableWidget
       id="orders"
       title={title}
-      anchorClassName="bottom-5 left-4"
+      anchorClassName="bottom-6 left-6"
       width="w-[23rem]"
       headerRight={
         !selectedOrder ? (
@@ -185,17 +184,19 @@ export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAcce
           route={route}
           loading={loadingRoute}
           error={routeError}
+          previewEnabled={previewEnabled}
           deciding={deciding}
           onAccept={onAccept}
           onReject={onReject}
           onBack={() => setSelectedOrderId(null)}
+          onPreviewRoute={onPreviewRoute}
         />
       ) : (
         <>
           {orders.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className="max-h-[19rem] overflow-y-auto px-1.5 pb-1.5">
+            <div className="max-h-[17rem] overflow-y-auto px-1.5 pb-1.5">
               {groupByZone(orders).map((group) => (
                 <div key={group.zone}>
                   <ZoneGroupHeader zone={group.zone} count={group.orders.length} />

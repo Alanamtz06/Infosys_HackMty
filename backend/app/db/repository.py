@@ -36,16 +36,33 @@ def get_trips_since(session: Session, period: str) -> list[TripRecord]:
 
 _DAILY_BY_AGENT_SQL = text("""
     SELECT
-        (day AT TIME ZONE 'UTC')::date AS bucket_day,
+        (created_at AT TIME ZONE 'UTC')::date AS bucket_day,
         agent_type,
-        COALESCE(sum(net_earnings), 0)   AS net_earnings,
+        COALESCE(sum(net_earnings_delta), 0)   AS net_earnings,
         COALESCE(sum(gas_cost), 0)       AS gas_cost,
         COALESCE(sum(time_cost), 0)      AS time_cost,
         COALESCE(sum(time_minutes), 0)   AS time_minutes,
-        COALESCE(sum(trips), 0)          AS trips,
-        COALESCE(sum(accepted_trips), 0) AS accepted_trips
-    FROM trip_records_daily
-    WHERE day >= :since
+        count(*)                         AS trips,
+        count(*) FILTER (WHERE accepted) AS accepted_trips
+    FROM trip_records
+    WHERE created_at >= :since
+    GROUP BY bucket_day, agent_type
+    ORDER BY bucket_day
+""")
+
+
+_HOURLY_BY_AGENT_SQL = text("""
+    SELECT
+        date_trunc('hour', created_at AT TIME ZONE 'UTC') AS bucket_day,
+        agent_type,
+        COALESCE(sum(net_earnings_delta), 0)   AS net_earnings,
+        COALESCE(sum(gas_cost), 0)       AS gas_cost,
+        COALESCE(sum(time_cost), 0)      AS time_cost,
+        COALESCE(sum(time_minutes), 0)   AS time_minutes,
+        COALESCE(count(*), 0)          AS trips,
+        COALESCE(count(*) FILTER (WHERE accepted), 0) AS accepted_trips
+    FROM trip_records
+    WHERE created_at >= :since
     GROUP BY bucket_day, agent_type
     ORDER BY bucket_day
 """)
@@ -64,9 +81,10 @@ def get_daily_history(session: Session, period: str, user_id: str | None = None)
     hoy lo rotula en litros — ver nota en el README del backend).
     """
     since = datetime.utcnow() - PERIOD_TO_TIMEDELTA[period]
-    rows = session.execute(_DAILY_BY_AGENT_SQL, {"since": since}).mappings().all()
+    query = _HOURLY_BY_AGENT_SQL if period == "dia" else _DAILY_BY_AGENT_SQL
+    rows = session.execute(query, {"since": since}).mappings().all()
 
-    by_day: dict[date, dict[str, dict]] = {}
+    by_day = {}
     for row in rows:
         by_day.setdefault(row["bucket_day"], {})[row["agent_type"]] = dict(row)
 
@@ -107,15 +125,19 @@ _SESSION_TOTALS_SQL = text("""
 
 
 def get_latest_session_id(session: Session) -> str | None:
-    """El `session_id` mas reciente que empareja un turno inteligente con su
-    espejo novato (lo crea /simulation/start)."""
+    """El `session_id` mas reciente que tenga trip_records para ambos agentes
+    (inteligente y novato). Si el turno mas nuevo todavia no tiene datos para
+    los dos, cae al anterior — evita que el dashboard muestre ceros mientras
+    el backend procesa la primera oferta de un turno recien arrancado."""
     return session.execute(
         text("""
-            SELECT session_id
-            FROM simulation_runs
-            WHERE session_id IS NOT NULL
-            GROUP BY session_id
-            ORDER BY max(started_at) DESC
+            SELECT sr.session_id
+            FROM simulation_runs sr
+            JOIN trip_records tr ON tr.run_id = sr.id
+            WHERE sr.session_id IS NOT NULL
+            GROUP BY sr.session_id
+            HAVING count(DISTINCT sr.agent_type) = 2
+            ORDER BY max(sr.started_at) DESC
             LIMIT 1
         """)
     ).scalar()

@@ -78,19 +78,32 @@ def get_scoreboard(session_id: str | None = None, session: Session = Depends(get
 
 @router.get("/live")
 def get_live_dashboard(session: Session = Depends(get_session)):
-    """Pulso en vivo para el dashboard: recalculado en cada request contra
-    live_dashboard_summary / live_trip_scores (ver app/db/schema.sql) — no es
-    una foto cacheada, cada llamada corre calculate_score() de nuevo sobre lo
-    ultimo que haya en trip_records.
+    """Pulso en vivo para el dashboard: muestra los acumulados del turno actual/ultimo
+    y los viajes mas recientes de toda la plataforma.
     """
-    summary_rows = session.execute(
-        text("""
-            SELECT agent_type, vehicle, trips_last_5min, accepted_last_5min,
-                   net_score_last_5min, avg_score_last_5min
-            FROM live_dashboard_summary
-            ORDER BY agent_type, vehicle
-        """)
-    ).mappings().all()
+    target = get_latest_session_id(session)
+    summary = []
+    is_active = False
+    
+    if target:
+        is_active = session.execute(
+            text("SELECT NOT bool_and(is_finished) FROM simulation_runs WHERE session_id = :sid"),
+            {"sid": target}
+        ).scalar()
+        totals = get_session_scoreboard(session, str(target))
+        for agent_type in ["inteligente", "novato"]:
+            data = totals.get(agent_type, {})
+            trips = data.get("trips", 0)
+            accepted = data.get("accepted_trips", 0)
+            net = float(data.get("net_earnings", 0.0))
+            summary.append({
+                "agent_type": agent_type,
+                "vehicle": "moto",
+                "trips": trips,
+                "accepted": accepted,
+                "net_score": net,
+                "avg_score": net / accepted if accepted > 0 else 0.0
+            })
 
     recent_trips_rows = session.execute(
         text("""
@@ -104,7 +117,8 @@ def get_live_dashboard(session: Session = Depends(get_session)):
     ).mappings().all()
 
     return {
-        "summary": [dict(row) for row in summary_rows],
+        "is_active": bool(is_active),
+        "summary": summary,
         "recent_trips": [
             {**dict(row), "created_at": row["created_at"].isoformat()} for row in recent_trips_rows
         ],

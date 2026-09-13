@@ -7,10 +7,12 @@ interface Props {
   route: RoutePreview | null;
   loading: boolean;
   error: string | null;
+  previewEnabled: boolean;
   deciding: boolean;
   onAccept: () => void;
   onReject: () => void;
   onBack: () => void;
+  onPreviewRoute: () => void;
 }
 
 function Row({
@@ -61,13 +63,13 @@ function LegSkeleton() {
  * con el veredicto del novato para la MISMA orden — la comparacion que pide
  * el panel dividido tambien aplica aqui, no solo en la lista.
  */
-export function OrderDetailCard({ order, route, loading, error, deciding, onAccept, onReject, onBack }: Props) {
+export function OrderDetailCard({ order, route, loading, error, previewEnabled, deciding, onAccept, onReject, onBack, onPreviewRoute }: Props) {
   const { t } = useTranslation();
   const worthIt = order.score >= 0;
   const novice = order.novice;
 
   return (
-    <div className="p-4">
+    <div className="p-4 max-h-[60vh] overflow-y-auto">
       <button
         onClick={onBack}
         className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.2em] text-plum/70 transition duration-200 ease-out hover:text-plum"
@@ -75,7 +77,7 @@ export function OrderDetailCard({ order, route, loading, error, deciding, onAcce
         <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" aria-hidden="true">
           <path d="M15 6 9 12l6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {t("orderDetail.eyebrow")}
+        {t("orderDetail.backToList")}
       </button>
 
       <div className="mt-1.5 flex items-center gap-2">
@@ -144,15 +146,25 @@ export function OrderDetailCard({ order, route, loading, error, deciding, onAcce
 
       {/* Las paradas en orden de visita, con el ETA acumulado de cada una. */}
       <div className="mt-3 border-t border-dust/60 pt-3">
-        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-charcoal/45">
-          {t("orderDetail.route")}
-        </span>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-charcoal/45">
+            {t("orderDetail.route")}
+          </span>
+          {!previewEnabled && (
+            <button
+              onClick={onPreviewRoute}
+              className="rounded-full bg-dust/40 px-2.5 py-1 text-[10px] font-medium text-charcoal/70 transition duration-200 ease-out hover:bg-dust/60 hover:text-ink"
+            >
+              {t("orderDetail.previewRoute")}
+            </button>
+          )}
+        </div>
 
-        {loading && !route && <LegSkeleton />}
+        {previewEnabled && loading && !route && <LegSkeleton />}
 
-        {error && <p className="mt-1.5 text-[11px] leading-snug text-charcoal/70">{error}</p>}
+        {previewEnabled && error && <p className="mt-1.5 text-[11px] leading-snug text-charcoal/70">{error}</p>}
 
-        {route && (
+        {previewEnabled && route && (
           <ol className="mt-1.5 space-y-1.5">
             {route.stops.map((stop, i) => (
               <li
@@ -160,7 +172,11 @@ export function OrderDetailCard({ order, route, loading, error, deciding, onAcce
                 className="animate-fade-up flex items-baseline gap-2"
                 style={{ animationDelay: `${i * 70}ms` }}
               >
-                <span className="mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-dust/60 text-[9px] font-semibold tabular-nums text-plum">
+                <span className={`mt-[3px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold tabular-nums ${
+                  stop.kind === 'courier' ? 'bg-paper text-plum ring-1 ring-plum/35' : 
+                  stop.kind === 'pickup' ? 'bg-blush text-plum ring-1 ring-plum/25' : 
+                  'bg-plum text-paper'
+                }`}>
                   {i}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[11px] text-ink">

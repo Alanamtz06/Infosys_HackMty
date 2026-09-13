@@ -1,4 +1,4 @@
-# Frontend — Lynx
+# Frontend — Nova
 
 React + Vite + TypeScript + Tailwind. Tablero con mapa 3D (tiles de OpenStreetMap
 via react-map-gl + MapLibre, sin token) en dark mode, panel de control y perfil

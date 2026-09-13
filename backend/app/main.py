@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import audit, auth, orders, simulation, stats
 from app.config import settings
 
-app = FastAPI(title="Lynx")
+app = FastAPI(title="Nova")
 
 app.add_middleware(
     CORSMiddleware,
