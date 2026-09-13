@@ -51,16 +51,31 @@ export default function App() {
           ControlPanel tambien es una barra de ancho completo — si el nav
           flotara encima con position:absolute, se encimarian. */}
       <header className="animate-fade-up relative z-header flex items-center justify-between gap-4 p-4">
-        <div className="flex items-center gap-3">
-          <img src="/logo-mark.png" alt="" className="h-7 w-7" />
-          <span className="text-sm font-semibold tracking-tight text-ink">Nova</span>
-          <VirtualClock virtualHour={virtualHour} />
-          {isActive && (
-            <span className="animate-fade-in rounded-full bg-blush/40 px-3 py-1 text-sm font-semibold tabular-nums tracking-[-0.01em] text-plum ring-1 ring-plum/15">
-              ${simulation!.net_earnings.toFixed(2)} MXN
-            </span>
-          )}
-          {view === "simulation" && <ShiftButton />}
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2.5">
+            <img src="/logo-mark.png" alt="" className="h-7 w-7 drop-shadow-sm" />
+            <span className="text-[15px] font-semibold tracking-tight text-ink">Nova</span>
+          </div>
+
+          <div className="flex items-center gap-1 rounded-full bg-paper/60 p-1 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl">
+            <VirtualClock virtualHour={virtualHour} />
+            
+            {isActive && (
+              <>
+                <div className="mx-1 h-4 w-[1px] bg-plum/15" />
+                <span className="animate-fade-in px-1 text-[13px] font-semibold tabular-nums tracking-[-0.01em] text-plum">
+                  ${simulation!.net_earnings.toFixed(2)} MXN
+                </span>
+              </>
+            )}
+            
+            {view === "simulation" && (
+              <>
+                <div className="mx-1 h-4 w-[1px] bg-plum/15" />
+                <ShiftButton />
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2">
