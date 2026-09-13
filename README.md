@@ -1,87 +1,116 @@
-# Lynx — Reto Infosys (HackMTY)
+# Nova — Reto Infosys (HackMTY)
 
-Simulador multiagente de un repartidor de plataforma en la Zona Metropolitana de
-Monterrey (ZMM) que maximiza sus ganancias netas durante un turno mediante
-decisiones rentables, usando un sistema multiagente sobre un grafo vial real
-(OpenStreetMap) con tráfico dinámico por horario.
+*(el proyecto se llamó "Lynx" al inicio del reto; se renombró a "Nova" a
+mitad de desarrollo — ver la nota de sincronización en `CLAUDE.md` si vuelve
+a cambiar.)*
+
+Simulador multiagente de un repartidor de plataforma en la Zona Metropolitana
+de Monterrey (ZMM) que maximiza sus ganancias netas durante un turno mediante
+decisiones rentables, sobre un grafo vial real (OpenStreetMap) con tráfico
+dinámico por horario. Corre **dos** agentes en paralelo sobre el mismo flujo
+de órdenes — uno que decide con una regla de tarifa de reserva (MXN/hora) y
+uno "novato" que acepta todo — para que la comparación sea sobre la calidad
+de la decisión, no sobre la suerte del turno.
 
 ## Estructura del repositorio
 
 ```
 backend/     Python + FastAPI — motor de simulación, agentes, routing, decisión, DB
-frontend/    React + Vite + TS — tablero de control, mapa 3D, perfil de analítica
-docs/        Notas de arquitectura adicionales (opcional)
+frontend/    React + Vite + TS — tablero de control, mapa en vivo, dashboard, perfil
 ```
 
-Cada carpeta tiene su propio `README.md` con setup e instrucciones. Ver también
-`.env.example` en cada una para las variables requeridas.
+Cada carpeta tiene su propio `README.md` con el detalle técnico (arquitectura,
+algoritmo, endpoints, tests, pendientes) y su propio `.env.example`.
+`CLAUDE.md` en la raíz tiene la guía completa para trabajar en el repo con
+Claude Code.
 
 ## Quickstart
 
 ```bash
 # Backend
 cd backend
-python -m venv .venv && .venv\Scripts\activate
+python -m venv .venv && .venv\Scripts\activate       # Windows
 pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload
+cp .env.example .env                                  # completar DATABASE_URL (Tiger Data) + GEMINI_API_KEY
+python -m app.db.init_db                               # tablas + DDL de Timescale (idempotente)
+uvicorn app.main:app --reload                          # http://localhost:8000
 
 # Frontend (en otra terminal)
 cd frontend
 npm install
-cp .env.example .env
-npm run dev
+cp .env.example .env      # VITE_API_URL, default http://localhost:8000
+npm run dev                 # http://localhost:5173
 ```
 
-## Lo que ya está scaffolded
+Tests: `pytest -v` en `backend/`, `npm run test` en `frontend/`.
 
-- **Backend:** FastAPI con routers stub (`simulation`, `orders`, `audit`, `stats`),
-  reloj virtual, tabla de reglas de tráfico de Monterrey (las 9 vialidades dadas),
-  fórmula de Score, esqueleto de batching y Q-Learning, capa de conexión a Tiger Data
-  (SQLAlchemy), y el prompt de auditoría con Gemini.
-- **Frontend:** App React con navegación Simulación/Perfil, mapa con tiles de
-  OpenStreetMap (MapLibre, sin token) en dark mode con pitch 3D, panel de
-  control con reloj virtual y botones de Modo Dios (separados en su propio
-  grupo, arrancan en "Normal" — nunca activos por defecto), selector de agente
-  (inteligente/novato), y página de perfil con gráfica de ganancias y filtros
-  de tiempo (recharts + zustand).
+## Qué funciona de punta a punta
 
-Todo lo anterior es **estructura y contratos**, no el sistema completo — los
-`TODO` en cada archivo marcan dónde falta conectar la lógica real.
+Esto ya no es un scaffold: el flujo completo login → turno → decisión →
+persistencia → analítica corre contra datos reales.
 
-## Cosas que yo (Claude) no puedo hacer por ti
+- **Orquestación real del turno** (`backend/app/api/routes/simulation.py`):
+  un reloj del mundo que corre siempre (no depende de "Start Shift"),
+  generación de órdenes por proceso de Poisson sobre minutos simulados, A*
+  sobre el grafo real de la ZMM con congestión por hora en 9 avenidas de
+  Monterrey, y movimiento continuo del repartidor sobre su ruta — todo
+  escribiendo de verdad en Tiger Data (`trip_records`), no en un dict
+  desechable.
+- **Dos agentes comparados en el mismo stream de órdenes**: el inteligente
+  (regla de tarifa de reserva MXN/hora, no solo "Score > 0" — ver
+  `backend/README.md`) y un novato que acepta todo, cada uno con su propio
+  `TripRecord`.
+- **Mochila de 2 pedidos**: el repartidor puede combinar un segundo pedido en
+  la entrega en curso si conviene (VRPTW real vía OR-Tools), con un criterio
+  geográfico barato antes de recoger el primero y costo marginal después.
+- **Optimizador de turno completo (MILP)**: una herramienta offline
+  (`backend/app/decision/lp_shift_optimizer.py` +
+  `scripts/run_lp_shift_simulation.py`) que resuelve, con visibilidad total
+  del flujo de ofertas de una ventana, el subconjunto óptimo a tomar — usada
+  para medir qué tan cerca del óptimo teórico está la heurística que corre
+  en vivo.
+- **Dashboard en vivo** (Tiger Data): pulso del turno actual/último cerrado
+  por agente, tabla de viajes recientes de toda la plataforma, y tendencia
+  histórica (ganancia neta, gasolina y tiempo ahorrados) vía el continuous
+  aggregate de TimescaleDB.
+- **Mapa en vivo**: vehículo real animado sobre su ruta, vista previa de
+  ruta bajo demanda con un vehículo fantasma recorriéndola, y un panel de
+  ofertas que compara **el mismo pedido evaluado por los dos agentes lado a
+  lado** antes de decidir.
+- **Auditoría de decisiones vía Gemini** (`POST /audit/decision`): explicación
+  en lenguaje natural de por qué el agente aceptaría/rechazaría una oferta,
+  cacheada en `decision_audits`.
+- **Auth real** (bcrypt, Postgres) y **bilingüe ES/EN** en todo el frontend.
 
-Requieren credenciales, cuentas externas, o decisiones que solo tú puedes tomar:
+## Qué falta (ver el detalle en cada README)
 
-1. **Cuenta y API key de Tiger Data / TimescaleDB.** Necesitas provisionar la
-   instancia (la side quest de MLH pide usar Tiger Data específicamente) y
-   ponerla en `backend/.env` como `DATABASE_URL`. Yo no puedo crear cuentas
-   ni ejecutar migraciones contra una base de datos que no existe todavía.
-2. **API key de Google Gemini.** Necesaria en `backend/.env` como
-   `GEMINI_API_KEY` para que `app/services/gemini_service.py` funcione.
-3. **Descarga de datos de OpenStreetMap para la ZMM.** `app/engine/graph_loader.py`
-   usa OSMnx para descargar el grafo vial en tiempo real desde internet — la
-   primera carga puede tardar y requiere que ejecutes el backend con acceso a
-   red (yo no tengo forma de descargarlo y dejarlo cacheado en este entorno).
-4. **Registro/entrega del hackathon** (formularios de Infosys/MLH, video demo,
-   submission en Devpost, etc.) — son acciones administrativas fuera del código.
-5. **Correr y probar la app end-to-end en un navegador real** para validar la
-   experiencia de usuario del dashboard — puedo revisar el código pero no
-   sustituyo una prueba manual tuya con los datos y tokens reales.
-6. **Decisiones de producto no especificadas**, como el diseño visual exacto
-   (colores, tipografía más allá de dark mode), el algoritmo fino de generación
-   de órdenes, o los parámetros exactos de Q-Learning (tamaño de grilla,
-   tasa de aprendizaje) — dejé valores por defecto razonables, pero deben
-   calibrarse con datos/pruebas reales.
+- **`decision/q_learning.py` sin implementar**: reposicionamiento predictivo
+  del repartidor hacia zonas con mejores ofertas. El único pendiente grande
+  de backend.
+- **Modo autónomo y `/simulation/benchmark` sin entrada en la UI**: el
+  backend ya soporta correr el agente solo (sin aprobación humana por
+  oferta) y medir un turno completo agente-vs-baseline sin esperar el reloj
+  del mundo; falta el botón en el frontend.
+- **`ScoreboardModal` y los componentes de auditoría están construidos pero
+  ninguna página los monta** todavía, aunque los endpoints que consumirían
+  ya responden de verdad.
+- **Redis (estado de turnos multi-worker) no se probó contra un servidor
+  real** — la lógica de serialización sí está cubierta con `fakeredis`.
+- **El reloj del mundo vive en el proceso**: reiniciar el backend "regresa"
+  el mundo a la hora real actual; con varios workers cada uno tendría su
+  propio ancla.
+- **`npm run lint` no funciona** en el frontend — falta `eslint.config.js`
+  (ESLint 9 requiere el formato flat).
 
-## Qué necesita cada parte para poder avanzar
+## Variables de entorno / dependencias externas
 
-| Parte | Qué necesita |
-| :--- | :--- |
-| `backend/app/db/*` | `DATABASE_URL` de Tiger Data + correr migraciones/`create_hypertable` |
-| `backend/app/services/gemini_service.py` | `GEMINI_API_KEY` |
-| `backend/app/engine/graph_loader.py` | Acceso a internet para descargar OSM (o un `.graphml` cacheado) |
-| `backend/app/api/routes/*.py` | Conectar los stubs con una sesión de simulación real (in-memory o Redis) que orqueste `VirtualClock` + `TrafficAgent` + `DeliveryAgent` |
-| `frontend/src/components/map/MapView.tsx` | Nada — usa tiles públicos de OpenStreetMap sin token |
-| `frontend/src/state/store.ts` | Definir el mecanismo de tiempo real (WebSocket o polling) hacia el backend |
-| `frontend/src/components/profile/*` | Datos reales desde `/stats/history/{period}` una vez haya registros en la base de datos |
+- **Tiger Data (Postgres + TimescaleDB)**: `backend/.env` → `DATABASE_URL`.
+- **Google Gemini**: `backend/.env` → `GEMINI_API_KEY`, para las
+  explicaciones de auditoría.
+- **OpenStreetMap**: `backend/app/engine/graph_loader.py` y `pois.py`
+  descargan el grafo vial y los restaurantes de la ZMM en la primera llamada
+  (vía OSMnx/Overpass) y cachean en memoria — necesita red, no necesita
+  API key.
+
+Ninguna de las tres requiere una cuenta propia del asistente: son
+credenciales/decisiones que le corresponden a quien corre el proyecto.
