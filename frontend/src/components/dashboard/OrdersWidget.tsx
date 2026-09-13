@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { useTranslation } from "../../i18n/useTranslation";
 import { groupByZone } from "../../lib/zoneGroups";
 import { OrderDetailCard } from "../map/OrderDetailCard";
@@ -143,7 +145,21 @@ function EmptyState() {
  * la izquierda, y esta lista abajo a la izquierda; en una ventana baja las
  * dos podian tocarse).
  */
-export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, deciding, onAccept, onReject, onPreviewRoute }: Props) {
+// `memo`: vive dentro de MapView, que se re-renderiza en cada frame de la
+// animacion del repartidor (ver useSmoothLngLat); este widget no depende de
+// esa posicion para nada, asi que sin memo pagaba ese costo 60 veces por
+// segundo por nada. Las props que le llegan de MapView ya son estables entre
+// esos frames (ver los useCallback en MapView.tsx) para que el memo sirva.
+export const OrdersWidget = memo(function OrdersWidget({
+  route,
+  loadingRoute,
+  routeError,
+  previewEnabled,
+  deciding,
+  onAccept,
+  onReject,
+  onPreviewRoute,
+}: Props) {
   const { t } = useTranslation();
   const simulation = useAppStore((s) => s.simulation);
   const selectedOrderId = useAppStore((s) => s.selectedOrderId);
@@ -235,4 +251,4 @@ export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, 
       )}
     </DraggableWidget>
   );
-}
+});

@@ -95,6 +95,17 @@ export interface SmoothPosition {
  * teletransportara". Medir la duracion real evita ese efecto sin tocar para
  * nada la posicion que manda el backend (que ya es correcta, ver
  * `position_along_route`/`dwell_checkpoints`).
+ *
+ * OJO: no se le puede poner un piso de velocidad "realista" (km/h) a esto —
+ * se probo y se revirtio. El reloj del mundo corre a `TIME_ACCELERATION`x
+ * (30x por defecto, ver `engine/virtual_clock.py`), asi que la distancia
+ * entre dos sondeos de 2s reales corresponde a un MINUTO simulado de
+ * manejo — comparada contra una velocidad real de calle, esa distancia
+ * "parece" carrisima, y forzar una animacion mas lenta para que se vea
+ * "creible" solo logra que el marcador (y por lo tanto el pintado de
+ * `ActiveRouteLine`, que se calcula proyectando ESTA posicion suavizada
+ * sobre la ruta) se quede atras del backend real, viéndose como si avanzara
+ * a rastras y la ruta no se pintara hasta que por fin alcanza el final.
  */
 export function useSmoothLngLat(
   target: { lng: number; lat: number } | null,

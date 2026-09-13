@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Marker } from "react-map-gl/maplibre";
 
 import type { PendingOrder } from "../../types";
@@ -8,10 +9,14 @@ interface Props {
   /** Se atenua cuando hay OTRA oferta seleccionada: la ruta en pantalla es
    *  de esa, y las demas no deben competir con ella. */
   dimmed: boolean;
-  onSelect: () => void;
+  // Recibe el id en vez de cerrar sobre el: asi el padre puede pasar UNA
+  // funcion estable a todos los marcadores (ver MapView.tsx) y `memo` de
+  // verdad evita re-renderizarlos en cada frame de la animacion del
+  // repartidor, que no les afecta en nada.
+  onSelect: (orderId: string) => void;
 }
 
-export function OrderMarker({ order, selected, dimmed, onSelect }: Props) {
+export const OrderMarker = memo(function OrderMarker({ order, selected, dimmed, onSelect }: Props) {
   return (
     <Marker
       latitude={order.pickup_lat}
@@ -20,7 +25,7 @@ export function OrderMarker({ order, selected, dimmed, onSelect }: Props) {
       // marcador nunca recibe el evento.
       onClick={(event) => {
         event.originalEvent.stopPropagation();
-        onSelect();
+        onSelect(order.order_id);
       }}
     >
       <button
@@ -44,4 +49,4 @@ export function OrderMarker({ order, selected, dimmed, onSelect }: Props) {
       </button>
     </Marker>
   );
-}
+});

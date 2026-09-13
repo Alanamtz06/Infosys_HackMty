@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Map, { type MapRef } from "react-map-gl/maplibre";
 import type { StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -277,21 +277,39 @@ export function MapView() {
     prevSelectedId.current = selectedOrderId;
   }, [selectedOrderId, courierTarget, reducedMotion]);
 
-  async function decide(accept: boolean) {
-    if (!simulation || !selectedOrder) return;
-    setDeciding(true);
-    try {
-      const { data } = await simulationApi.decide({
-        run_id: simulation.run_id,
-        order_id: selectedOrder.order_id,
-        accept,
-      });
-      // El store suelta la seleccion solo: la orden ya no esta pendiente.
-      setSimulation(data);
-    } finally {
-      setDeciding(false);
-    }
-  }
+  // Estables entre frames de animacion (ver useSmoothLngLat/VehicleMarker):
+  // sin useCallback, cada re-render de MapView (60/s mientras el repartidor
+  // se mueve) le pasaria una funcion nueva a OrderMarker/OrdersWidget y su
+  // `memo` nunca podria saltarse el re-render.
+  const handleSelectOrder = useCallback(
+    (orderId: string) => {
+      setSelectedOrderId(orderId === selectedOrderId ? null : orderId);
+    },
+    [selectedOrderId, setSelectedOrderId],
+  );
+
+  const decide = useCallback(
+    async (accept: boolean) => {
+      if (!simulation || !selectedOrder) return;
+      setDeciding(true);
+      try {
+        const { data } = await simulationApi.decide({
+          run_id: simulation.run_id,
+          order_id: selectedOrder.order_id,
+          accept,
+        });
+        // El store suelta la seleccion solo: la orden ya no esta pendiente.
+        setSimulation(data);
+      } finally {
+        setDeciding(false);
+      }
+    },
+    [simulation, selectedOrder, setSimulation],
+  );
+
+  const handleAccept = useCallback(() => decide(true), [decide]);
+  const handleReject = useCallback(() => decide(false), [decide]);
+  const handlePreviewRoute = useCallback(() => setPreviewEnabled(true), []);
 
   return (
     <div className="absolute inset-0">
@@ -337,9 +355,7 @@ export function MapView() {
               // Cuando hay una ruta en pantalla, el resto de las ofertas se
               // apaga: si no, el mapa compite consigo mismo.
               dimmed={Boolean(selectedOrderId) && order.order_id !== selectedOrderId}
-              onSelect={() =>
-                setSelectedOrderId(order.order_id === selectedOrderId ? null : order.order_id)
-              }
+              onSelect={handleSelectOrder}
             />
           ))}
 
@@ -438,10 +454,10 @@ export function MapView() {
         loadingRoute={loadingRoute}
         routeError={routeError}
         previewEnabled={previewEnabled}
-        onPreviewRoute={() => setPreviewEnabled(true)}
+        onPreviewRoute={handlePreviewRoute}
         deciding={deciding}
-        onAccept={() => decide(true)}
-        onReject={() => decide(false)}
+        onAccept={handleAccept}
+        onReject={handleReject}
       />
     </div>
   );

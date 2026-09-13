@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Marker } from "react-map-gl/maplibre";
 
 import type { RouteStop } from "../../types";
@@ -70,7 +71,17 @@ const STYLES: Record<RouteStop["kind"], { core: string; glyph: JSX.Element }> = 
   },
 };
 
-export function StopMarker({ stop, index, detailed = false, delayMs = 0, dimmed = false, label }: Props) {
+// `memo`: sin esto, cada frame de la animacion del repartidor (VehicleMarker,
+// ver useSmoothLngLat) re-renderiza tambien todas las paradas visibles, que
+// no cambian entre sondeos — puro trabajo de reconciliacion tirado.
+export const StopMarker = memo(function StopMarker({
+  stop,
+  index,
+  detailed = false,
+  delayMs = 0,
+  dimmed = false,
+  label,
+}: Props) {
   const style = STYLES[stop.kind];
 
   return (
@@ -108,4 +119,4 @@ export function StopMarker({ stop, index, detailed = false, delayMs = 0, dimmed 
       </div>
     </Marker>
   );
-}
+});
