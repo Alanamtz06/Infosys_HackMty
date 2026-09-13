@@ -226,8 +226,75 @@ avanza sobre esa ruta con el reloj del mundo
 Las entregas se hacen de una en una, en orden de aceptacion.
 
 `SimulationState` expone `courier_lat`/`courier_lon`, `active_deliveries` y
-`deliveries_completed` — listos para reemplazar `PLACEHOLDER_RIDER_POSITION`
-en `MapView.tsx` (eso es cambio de frontend, no se hizo aqui).
+`deliveries_completed` — el frontend ya los consume (`MapView.tsx` mueve el
+marcador real con esto, ya no hay placeholder).
+
+**Fix de congelamiento/teletransporte:** el tiempo de servicio (esperar la
+comida en el restaurante, `SERVICE_TIME_MINUTES`) se congelaba al FINAL de
+toda la ruta en vez de en el nodo del pickup real, porque `elapsed_seconds`
+(que ya incluye esas pausas) se salia del presupuesto fisico de la ruta y
+`position_along_route` dejaba al repartidor clavado en el ultimo nodo durante
+ese tiempo de mas — se veia como "se congela y luego reaparece en otro lado".
+El fix (`dwell_checkpoints` en `routing.position_along_route`) consume cada
+pausa de servicio en el nodo fisico donde realmente ocurre (pickup real o
+pickup del 2do pedido en una mochila combinada), no acumulada al final.
+
+## Mochila de 2 pedidos (VRPTW en vivo)
+
+`settings.max_active_deliveries` (default 2) es cuantos pedidos puede llevar
+el repartidor encima a la vez. Con 1 pedido activo, cada oferta nueva se
+evalua como candidata a **fusionarse** en esa misma entrega en vez de
+evaluarse sola:
+
+1. **Antes de recoger el 1er pedido** (`_fits_strict_corridor` /
+   `backpack_strict_proximity_ratio`, default 0.4): criterio estricto y
+   barato — el pickup y el dropoff del 2do pedido tienen que caer dentro de
+   un "corredor" alrededor del trayecto pickup→dropoff del 1ro (a lo mas 40%
+   de esa distancia de cada punto). Sin este filtro, cada oferta nueva
+   forzaria un VRPTW completo solo para descartarla.
+2. **Ya con el 1er pedido recogido** (`_evaluate_backpack_candidate` /
+   `_is_backpack_marginal_eligible`): se resuelve `batching.plan_backpack_route`
+   (VRPTW real via OR-Tools) y se compara el **costo marginal** de agregar el
+   2do pedido contra la ruta que ya se iba a hacer de todos modos — el Score
+   de la oferta ya no se evalua sola, se evalua como "cuanto cambia mi ruta
+   actual si la agrego".
+
+Al aceptar, `_merge_into_backpack` reemplaza la `ActiveDelivery` en curso por
+una que incluye ambos pedidos (`extra_order`), con la ruta ya re-optimizada.
+`SimulationState.at_capacity` (mochila llena, 2/2) se expone para que el
+frontend deshabilite "Aceptar" en la ficha de la oferta
+(`OrderDetailCard.tsx`) y `/simulation/decide` tambien lo rechaza con 409 del
+lado del servidor si se intenta de todos modos.
+
+Costaba caro recalcularlo: el costo marginal es un VRPTW mas varias
+busquedas A*, ~2-4s medido (`profile_backpack.py`). Por eso la reevaluacion
+periodica de ofertas pendientes (ver mas abajo) NO lo recalculaba en cada
+pasada — el fix de esta misma entrega hace que se salte cuando no aplica en
+vez de correrlo de mas.
+
+## El optimizador de turno completo (MILP, offline)
+
+`decision/lp_shift_optimizer.py` es una capa distinta de `batching.py`/
+`vrptw_solver.py`: esos resuelven "encajar 1-2 pedidos mas" sobre la marcha
+con lo que ya se acepto; el optimizador de turno resuelve, dado TODO el flujo
+de ofertas que aparecio durante una ventana de tiempo, que SUBCONJUNTO
+conviene tomar y en que orden, maximizando ganancia neta — la pregunta que
+`policy.should_accept` responde oferta por oferta, resuelta de una vez con
+visibilidad completa.
+
+Es un MILP (OR-Tools) sobre un grafo `START` + 2 nodos por pedido (pickup/
+dropoff), con restricciones de causalidad (no se puede visitar un pickup
+antes de que la oferta exista — nada de "saltar" a una orden del futuro),
+precedencia pickup→dropoff, capacidad de mochila (0-2, misma regla que arriba)
+y conectividad (sin sub-tours). Con heuristicas greedy + reduccion de grafo
+para acotar el espacio de busqueda en ventanas con muchas ofertas.
+
+**No esta conectado a la simulacion en vivo** — es una herramienta de
+analisis offline, corrida por `scripts/run_lp_shift_simulation.py` (simula
+varios escenarios y compara contra la politica greedy de
+`policy.should_accept`) y cubierta por `tests/test_lp_shift_optimizer.py`.
+Sirve para medir que tan cerca del optimo teorico esta la heuristica que
+corre en vivo, no para decidir turnos reales.
 
 ## Setup
 
@@ -277,26 +344,38 @@ se prueban con datos sinteticos, sin red.
 Los tests no pegan a Tiger Data (no hay fixtures de base todavia): prueban la
 logica de cada capa. El flujo HTTP completo SI se valido a mano contra la
 instancia real de Tiger Cloud — `/simulation/start` -> `/state` -> `/decide`
--> `/audit/decision` -> `/god-mode` -> `/stats/*` -> `/end`.
+-> `/audit/decision` -> `/stats/*` -> `/end`.
+
+Nota: no hay endpoint de "god mode" — se elimino a proposito (ver
+`tests/test_god_mode_removed.py`); las 9 vialidades de `traffic_rules.py`
+siguen aplicando congestion normal por hora del dia, solo sin el atajo manual
+de "forzar hora pico" que existio en una version anterior.
 
 ## Endpoints de analitica (Tiger Data)
 
-- `GET /stats/live` — pulso de los ultimos 5 minutos por agente/vehiculo y
-  ultimos 25 viajes, leidos de las vistas NO materializadas
-  (`live_dashboard_summary`, `live_trip_scores`): cada request vuelve a
-  correr `calculate_score()` en Postgres. Es lo que consume `DashboardPage`,
-  que ya sabe pintar filas de `inteligente` y `novato`.
-- `GET /stats/history/{period}` — serie por dia leida del continuous
-  aggregate `trip_records_daily` (`time_bucket` de 1 dia). Periodos:
+- `GET /stats/live` — pulso del turno actual (o el ultimo cerrado, si nadie
+  esta corriendo ahora mismo) por agente, mas los ultimos 25 viajes de toda
+  la plataforma. `get_latest_session_id` (repository.py) elige el
+  `session_id` mas reciente que ya tenga `trip_records` para AMBOS agentes
+  (inteligente y novato) — si el turno mas nuevo aun no tiene datos de los
+  dos, cae al anterior en vez de mostrar ceros mientras el backend procesa la
+  primera oferta. `is_active` le dice al frontend si mostrar la etiqueta
+  "Turno actual" o "Turno pasado". Cada request vuelve a agregar
+  `trip_records` con `calculate_score()` en Postgres, no es una foto cacheada.
+  Es lo que consume `DashboardPage` (tarjetas de resumen + tabla de viajes
+  recientes).
+- `GET /stats/history/{period}` — serie leida del continuous aggregate
+  `trip_records_daily`, agrupada por dia salvo `dia` (agrupa por HORA, para
+  que el filtro de un solo dia no se vea como un unico punto). Periodos:
   `dia`, `semana`, `1_mes`, `3_meses`, `6_meses`, `1_anio`. Devuelve
   `points[]` con exactamente las llaves de `EarningsPoint`
-  (`date`/`netEarnings`/`gasSaved`/`timeSaved`), asi que `ProfileStats` puede
-  cambiar su `SAMPLE_DATA` por esto sin transformar nada.
+  (`date`/`netEarnings`/`gasSaved`/`timeSaved`) mas `totals` — lo que
+  consume la seccion "Tendencia historica" de `DashboardPage`
+  (`EarningsChart` + `TimeFilterSelector`).
   - `gasSaved`/`timeSaved` no son columnas: son lo que el inteligente se
     ahorro frente al novato ese dia (novato - inteligente), como documenta
-    `db/schema.sql`. **`gasSaved` esta en MXN de gasolina no gastada**,
-    mientras que `ProfileStats` hoy lo rotula en litros — hay que corregir
-    el rotulo (frontend) o convertir a litros con un precio por litro.
+    `db/schema.sql`. **`gasSaved` esta en MXN de gasolina no gastada** y el
+    frontend ya lo rotula asi ("Gasolina ahorrada" con `$`, no litros).
   - El continuous aggregate se dejo en `materialized_only = false`: su policy
     solo materializa hasta hace una hora, y sin eso el filtro "Day" saldria
     vacio aunque el turno este corriendo ahora mismo.
@@ -346,23 +425,32 @@ Backend:
   ahorro de hacer varias ordenes juntas y lo anuncia en el log, pero nadie
   puede aceptar un lote porque no existe esa accion en la UI.
 
-Frontend (para el integrante que lleve esa parte — nada de esto se toco):
+Frontend (resuelto por la rama `FixFrontEnd`, fusionada en
+`alana/merge-agente-fixfrontend` — ver `frontend/README.md` para el detalle
+de esa reescritura):
 
-- `MapView.tsx` sigue con `PLACEHOLDER_RIDER_POSITION`; ya hay
-  `courier_lat`/`courier_lon` en `SimulationState`.
-- `ProfileStats.tsx` sigue con `SAMPLE_DATA`; `/stats/history/{period}` ya
-  devuelve la forma que necesita (ver nota de litros vs MXN arriba).
-- `ScoreboardModal.tsx` y `AuditDecisionButton` estan construidos pero ningun
-  page los monta; `/stats/scoreboard` y `/audit/decision` ya responden de
-  verdad (o usar `novice_earnings` de `SimulationState`, que viene en cada
-  poll).
-- El cierre de calle viaja con el preset "Rush Hour" porque no se podia
-  agregar un boton nuevo sin tocar el frontend.
+- ~~`MapView.tsx` sigue con `PLACEHOLDER_RIDER_POSITION`~~ — resuelto: usa
+  `courier_lat`/`courier_lon` (o la posicion del `ActiveDelivery` en curso)
+  con animacion suave e interpolacion de bearing.
+- ~~`ProfileStats.tsx` sigue con `SAMPLE_DATA`~~ — resuelto y reubicado:
+  `ProfileStats.tsx` ya no existe; la tendencia historica (`EarningsChart` +
+  `TimeFilterSelector`, real via `/stats/history/{period}`) se movio a
+  `DashboardPage` (es una metrica del turno/negocio, no del perfil
+  individual). `ProfilePage` ahora es solo edicion de vehiculo.
+- ~~El cierre de calle viaja con el preset "Rush Hour"~~ — ya no aplica: los
+  presets de "Modo Dios" se eliminaron del todo (ver nota de
+  `test_god_mode_removed.py` arriba), no solo del frontend.
+
+Sigue pendiente (nadie lo toco todavia):
+
+- **`ScoreboardModal.tsx` y `AuditDecisionButton`/`AuditExplanationCard`
+  siguen construidos pero ningun page los monta** — `/stats/scoreboard` y
+  `/audit/decision` ya responden de verdad.
 - **El modo autonomo no tiene entrada en la UI.** `/simulation/start` ya
   acepta `autonomous: true` y `SimulationState` expone el campo `autonomous`,
-  pero `ControlPanel.tsx` no lo manda. Un switch de "el agente juega solo"
-  seria el demo mas fuerte del reto (dos agentes corriendo el mismo turno
-  lado a lado), y del lado del backend ya esta todo.
+  pero ningun componente lo manda todavia. Un switch de "el agente juega
+  solo" seria el demo mas fuerte del reto (dos agentes corriendo el mismo
+  turno lado a lado), y del lado del backend ya esta todo.
 - **`/simulation/benchmark` tampoco tiene entrada en la UI**; hoy se corre
   por curl o desde `/docs`. Un boton de "medir turno completo" daria el
   numero de agente-vs-baseline en pantalla.
