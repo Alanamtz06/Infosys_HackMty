@@ -166,6 +166,7 @@ export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, 
       title={title}
       anchorClassName="bottom-6 left-6"
       width="w-[23rem]"
+      avoidElementId="config-widget-container"
       headerRight={
         !selectedOrder ? (
           <span className="flex items-center gap-1.5 text-[10px] tabular-nums text-charcoal/50">
@@ -196,7 +197,10 @@ export function OrdersWidget({ route, loadingRoute, routeError, previewEnabled, 
           {orders.length === 0 ? (
             <EmptyState />
           ) : (
-            <div className="max-h-[17rem] overflow-y-auto px-1.5 pb-1.5">
+            <div
+              className="overflow-y-auto px-1.5 pb-1.5"
+              style={{ maxHeight: "min(19rem, var(--dynamic-max-height))" }}
+            >
               {groupByZone(orders).map((group) => (
                 <div key={group.zone}>
                   <ZoneGroupHeader zone={group.zone} count={group.orders.length} />

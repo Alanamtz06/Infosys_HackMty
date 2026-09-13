@@ -79,7 +79,7 @@ export const es = {
 
   // --- Order detail card ---------------------------------------------------
   "orderDetail.eyebrow": "Detalle del pedido",
-  "orderDetail.backToList": "Lista de pedidos",
+  "orderDetail.backToList": "Lista de ofertas",
   "orderDetail.newOrder": "Pedido nuevo",
   "orderDetail.close": "Cerrar detalle",
   "orderDetail.score": "Score",
@@ -242,7 +242,7 @@ export const en: Record<TranslationKey, string> = {
   "orders.theOrder": "the order",
 
   "orderDetail.eyebrow": "Order detail",
-  "orderDetail.backToList": "List of orders",
+  "orderDetail.backToList": "List of offers",
   "orderDetail.newOrder": "New order",
   "orderDetail.close": "Close order detail",
   "orderDetail.score": "Score",
