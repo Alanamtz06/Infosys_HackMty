@@ -4,6 +4,7 @@ import { useTranslation } from "./i18n/useTranslation";
 import type { Language } from "./i18n/translations";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { VirtualClock } from "./components/dashboard/VirtualClock";
 import { ProfilePage } from "./pages/ProfilePage";
 import { SimulationPage } from "./pages/SimulationPage";
 import { useAppStore } from "./state/store";
@@ -15,7 +16,11 @@ export default function App() {
   const user = useAppStore((s) => s.user);
   const setUser = useAppStore((s) => s.setUser);
   const setLanguage = useAppStore((s) => s.setLanguage);
+  const simulation = useAppStore((s) => s.simulation);
   const [view, setView] = useState<View>("simulation");
+
+  const isActive = simulation !== null && !simulation.is_finished;
+  const virtualHour = simulation?.virtual_hour ?? 8;
 
   if (!user) {
     return <LoginPage />;
@@ -44,11 +49,23 @@ export default function App() {
       {/* Header en flujo normal, no flotante: en la pagina de Simulacion,
           ControlPanel tambien es una barra de ancho completo — si el nav
           flotara encima con position:absolute, se encimarian. */}
-      <header className="animate-fade-up relative z-header flex items-center justify-end gap-2 p-4">
-        {/* Isla flotante con doble bisel: la bandeja translucida sostiene el
-            riel opaco, mismo lenguaje que los paneles del mapa. */}
-        <nav className="flex gap-1 rounded-full bg-paper/60 p-1 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl">
-          <NavButton active={view === "simulation"} onClick={() => setView("simulation")}>
+      <header className="animate-fade-up relative z-header flex items-center justify-between gap-4 p-4">
+        <div className="flex items-center gap-3">
+          <img src="/logo-mark.png" alt="" className="h-7 w-7" />
+          <span className="text-sm font-semibold tracking-tight text-ink">Lynx</span>
+          <VirtualClock virtualHour={virtualHour} />
+          {isActive && (
+            <span className="animate-fade-in rounded-full bg-blush/40 px-3 py-1 text-sm font-semibold tabular-nums tracking-[-0.01em] text-plum ring-1 ring-plum/15">
+              ${simulation!.net_earnings.toFixed(2)} MXN
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          {/* Isla flotante con doble bisel: la bandeja translucida sostiene el
+              riel opaco, mismo lenguaje que los paneles del mapa. */}
+          <nav className="flex gap-1 rounded-full bg-paper/60 p-1 shadow-[0_10px_26px_-12px_rgba(104,73,89,0.5)] ring-1 ring-plum/10 backdrop-blur-xl">
+            <NavButton active={view === "simulation"} onClick={() => setView("simulation")}>
             {t("nav.simulation")}
           </NavButton>
           <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")}>
@@ -74,6 +91,7 @@ export default function App() {
             <path d="M21 12H9" />
           </svg>
         </button>
+        </div>
       </header>
 
       {/* `key={view}` reinicia la animacion de entrada en cada cambio de vista;

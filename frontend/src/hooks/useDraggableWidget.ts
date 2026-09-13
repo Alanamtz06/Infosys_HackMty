@@ -66,9 +66,16 @@ export function toggleWidget(id: string): void {
  */
 export function useDraggableWidget(id: string) {
   const [layout, setLayout] = useState<WidgetLayout>(() => readLayout(id));
-  const draggingRef = useRef<{ startX: number; startY: number; originDx: number; originDy: number } | null>(
-    null,
-  );
+  const draggingRef = useRef<{
+    startX: number;
+    startY: number;
+    originDx: number;
+    originDy: number;
+    minDx: number;
+    maxDx: number;
+    minDy: number;
+    maxDy: number;
+  } | null>(null);
 
   useEffect(() => {
     function onReset() {
@@ -104,13 +111,29 @@ export function useDraggableWidget(id: string) {
     (event: React.PointerEvent) => {
       // Solo el boton principal / el primer punto de contacto tactil.
       if (event.button !== undefined && event.button !== 0) return;
+
+      let minDx = -Infinity, maxDx = Infinity, minDy = -Infinity, maxDy = Infinity;
+      const widgetElement = (event.currentTarget as Element).closest(".z-panel") as HTMLElement;
+      if (widgetElement && widgetElement.offsetParent) {
+        const parent = widgetElement.offsetParent as HTMLElement;
+        const padding = 8; // keep a small visual margin from the absolute edge
+        minDx = -widgetElement.offsetLeft + padding;
+        maxDx = parent.clientWidth - (widgetElement.offsetLeft + widgetElement.offsetWidth) - padding;
+        minDy = -widgetElement.offsetTop + padding;
+        maxDy = parent.clientHeight - (widgetElement.offsetTop + widgetElement.offsetHeight) - padding;
+      }
+
       draggingRef.current = {
         startX: event.clientX,
         startY: event.clientY,
         originDx: layout.dx,
         originDy: layout.dy,
+        minDx,
+        maxDx,
+        minDy,
+        maxDy,
       };
-      (event.target as Element).setPointerCapture(event.pointerId);
+      (event.currentTarget as Element).setPointerCapture(event.pointerId);
     },
     [layout.dx, layout.dy],
   );
@@ -118,8 +141,13 @@ export function useDraggableWidget(id: string) {
   const onPointerMove = useCallback((event: React.PointerEvent) => {
     const drag = draggingRef.current;
     if (!drag) return;
-    const dx = drag.originDx + (event.clientX - drag.startX);
-    const dy = drag.originDy + (event.clientY - drag.startY);
+    let dx = drag.originDx + (event.clientX - drag.startX);
+    let dy = drag.originDy + (event.clientY - drag.startY);
+
+    // Evitar que el widget se salga del area del mapa
+    dx = Math.max(drag.minDx, Math.min(drag.maxDx, dx));
+    dy = Math.max(drag.minDy, Math.min(drag.maxDy, dy));
+
     setLayout((prev) => ({ ...prev, dx, dy }));
   }, []);
 
@@ -127,7 +155,7 @@ export function useDraggableWidget(id: string) {
     (event: React.PointerEvent) => {
       if (!draggingRef.current) return;
       draggingRef.current = null;
-      (event.target as Element).releasePointerCapture(event.pointerId);
+      (event.currentTarget as Element).releasePointerCapture(event.pointerId);
       // Se persiste al SOLTAR, no en cada frame de movimiento — escribir a
       // localStorage 60 veces por segundo durante el arrastre es trabajo
       // desperdiciado que nadie ve.

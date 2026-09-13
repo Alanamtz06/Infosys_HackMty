@@ -33,10 +33,10 @@ export function DraggableWidget({ id, title, anchorClassName, width, children, h
 
   return (
     <div
-      className={`animate-fade-up pointer-events-auto absolute z-panel ${anchorClassName} ${width ?? "w-[20.5rem]"} max-w-[calc(100vw-2rem)]`}
+      className={`pointer-events-auto absolute z-panel ${anchorClassName} ${width ?? "w-[20.5rem]"} max-w-[calc(100vw-2rem)]`}
       style={{ transform: `translate3d(${dx}px, ${dy}px, 0)` }}
     >
-      <div className="rounded-[1.75rem] bg-paper/70 p-1.5 shadow-[0_20px_44px_-18px_rgba(104,73,89,0.55)] ring-1 ring-plum/10 backdrop-blur-xl">
+      <div className="animate-fade-up rounded-[1.75rem] bg-paper/70 p-1.5 shadow-[0_20px_44px_-18px_rgba(104,73,89,0.55)] ring-1 ring-plum/10 backdrop-blur-xl">
         <div className="overflow-hidden rounded-[calc(1.75rem-0.375rem)] bg-paper/95 shadow-[inset_0_1px_1px_rgba(255,255,255,0.6)]">
           <header
             {...dragHandleProps}

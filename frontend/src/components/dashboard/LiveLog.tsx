@@ -35,7 +35,7 @@ export function LiveLog() {
     <DraggableWidget
       id="liveLog"
       title={t("liveLog.title")}
-      anchorClassName="right-4 top-4"
+      anchorClassName="right-6 top-6"
       width="w-72"
       headerRight={
         <span className="relative flex h-1.5 w-1.5">

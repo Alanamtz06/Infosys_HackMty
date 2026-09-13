@@ -165,7 +165,7 @@ export function OrdersWidget({ route, loadingRoute, routeError, deciding, onAcce
     <DraggableWidget
       id="orders"
       title={title}
-      anchorClassName="bottom-5 left-4"
+      anchorClassName="bottom-6 left-6"
       width="w-[23rem]"
       headerRight={
         !selectedOrder ? (
