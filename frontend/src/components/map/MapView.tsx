@@ -169,6 +169,39 @@ export function MapView() {
     courierTargetRef.current = courierTarget;
   }, [courierTarget]);
 
+  // --- "Esperando el pedido" (pausa de servicio real, no un bug) ----------
+  // El backend congela la posicion del repartidor mientras espera la comida
+  // en el restaurante (ver dwell_checkpoints en el backend) — sin una señal
+  // visual, esa quietud se lee igual que si se hubiera atorado. Se detecta
+  // comparando la posicion CRUDA que manda el backend (no la suavizada de
+  // useSmoothLngLat, que sigue animando el ultimo tramo) entre dos sondeos
+  // consecutivos de la MISMA entrega: si no cambio y la entrega no termino,
+  // esta en pausa.
+  const lastRawCourierRef = useRef<{ orderId: string; lat: number; lng: number } | null>(null);
+  const [isCourierWaiting, setIsCourierWaiting] = useState(false);
+
+  useEffect(() => {
+    if (!currentDelivery) {
+      lastRawCourierRef.current = null;
+      setIsCourierWaiting(false);
+      return;
+    }
+
+    const prev = lastRawCourierRef.current;
+    const samePlaceAsLastPoll =
+      prev != null &&
+      prev.orderId === currentDelivery.order_id &&
+      Math.abs(prev.lat - currentDelivery.courier_lat) < 1e-6 &&
+      Math.abs(prev.lng - currentDelivery.courier_lon) < 1e-6;
+
+    setIsCourierWaiting(samePlaceAsLastPoll && currentDelivery.progress < 1);
+    lastRawCourierRef.current = {
+      orderId: currentDelivery.order_id,
+      lat: currentDelivery.courier_lat,
+      lng: currentDelivery.courier_lon,
+    };
+  }, [currentDelivery?.order_id, currentDelivery?.courier_lat, currentDelivery?.courier_lon, currentDelivery?.progress]);
+
 
   // --- Encuadre al seleccionar una orden -----------------------------------
   // Reacciona cuando selectedOrderId cambia (se selecciona una orden distinta).
@@ -440,6 +473,8 @@ export function MapView() {
               lng={courier.lng}
               bearing={courier.bearing}
               vehicle={vehicle}
+              waiting={isCourierWaiting}
+              label={isCourierWaiting ? t("map.courier.waiting") : undefined}
             />
           )}
         </Map>

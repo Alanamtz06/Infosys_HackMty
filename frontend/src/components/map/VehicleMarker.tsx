@@ -11,6 +11,11 @@ interface Props {
   /** `ghost` = previsualizacion de una oferta que aun no se acepta. */
   variant?: "live" | "ghost";
   label?: string;
+  /** El repartidor esta parado en una pausa de servicio REAL (esperando la
+   * comida en el restaurante), no atorado por un bug — ver MapView.tsx. Le
+   * pone un bamboleo suave en vez de dejarlo inerte, para que la quietud se
+   * lea como "en pausa" y no como "se congelo". */
+  waiting?: boolean;
 }
 
 // Siluetas CENITALES, no de perfil: el mapa se ve desde arriba, y un icono de
@@ -76,12 +81,14 @@ function CarGlyph() {
  *  - Easing: `ease-out` de la tabla del proyecto para el giro (un vehiculo
  *    entra al giro rapido y lo acomoda al final), nunca `transition-all`.
  */
-export function VehicleMarker({ lat, lng, bearing = 0, vehicle, variant = "live", label }: Props) {
+export function VehicleMarker({ lat, lng, bearing = 0, vehicle, variant = "live", label, waiting = false }: Props) {
   const isGhost = variant === "ghost";
 
   return (
     <Marker latitude={lat} longitude={lng}>
-      <div className="relative flex h-12 w-12 items-center justify-center font-sans">
+      <div
+        className={`relative flex h-12 w-12 items-center justify-center font-sans ${waiting ? "animate-bob" : ""}`}
+      >
         {/* Halo: solo en vivo. En el fantasma competiria con el pulso de las
             paradas y el mapa se vuelve ruido. */}
         {!isGhost && (

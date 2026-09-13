@@ -67,7 +67,7 @@ export default function App() {
                 </span>
                 <div className="mx-1 h-4 w-[1px] bg-plum/15" />
                 <span className="animate-fade-in px-1 text-[13px] font-semibold tabular-nums tracking-[-0.01em] text-plum">
-                  {t("control.backpack", { count: simulation!.active_deliveries, max: 2 })}
+                  {t("control.ordersTaken", { count: simulation!.active_deliveries, max: 2 })}
                 </span>
               </>
             )}

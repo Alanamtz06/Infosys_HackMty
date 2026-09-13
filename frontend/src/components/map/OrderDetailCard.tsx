@@ -196,7 +196,7 @@ export function OrderDetailCard({ order, route, loading, error, previewEnabled, 
 
       {order.at_capacity && (
         <p className="mt-3 rounded-xl bg-dust/40 px-3 py-2 text-[11px] leading-snug text-charcoal/70">
-          🎒 {t("orderDetail.backpackFull")}
+          {t("orderDetail.ordersTakenFull")}
         </p>
       )}
 
