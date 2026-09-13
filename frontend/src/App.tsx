@@ -52,7 +52,7 @@ export default function App() {
       <header className="animate-fade-up relative z-header flex items-center justify-between gap-4 p-4">
         <div className="flex items-center gap-5">
           <div className="flex items-center gap-2.5">
-            <img src="/logo-mark.png" alt="" className="h-7 w-7 drop-shadow-sm" />
+            <img src="/nova-logo.svg" alt="" className="h-7 w-7 drop-shadow-sm" />
             <span className="text-[15px] font-semibold tracking-tight text-ink">Nova</span>
           </div>
 
